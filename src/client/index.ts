@@ -15,7 +15,6 @@ import { v } from "convex/values";
 import { z } from "zod";
 import type { ComponentApi } from "../component/_generated/component.js";
 import type { Id } from "../component/_generated/dataModel.js";
-import { vThreadDoc } from "../component/threads.js";
 
 // ============================================================================
 // Types
@@ -48,6 +47,23 @@ export type ThreadDoc = {
   status: ThreadStatus;
   stopSignal: boolean;
 };
+
+const vThreadStatus = v.union(
+  v.literal("streaming"),
+  v.literal("awaiting_tool_results"),
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("stopped"),
+);
+
+const vClientThreadDoc = v.object({
+  _id: v.string(),
+  _creationTime: v.number(),
+  status: vThreadStatus,
+  stopSignal: v.boolean(),
+  streamId: v.optional(v.union(v.string(), v.null())),
+  streamFnHandle: v.string(),
+});
 
 export type MessageDoc = {
   _id: string;
@@ -687,7 +703,7 @@ export function defineAgentApi(
       returns: v.null(),
       handler: async (ctx, args) => {
         await ctx.runMutation(component.threads.setStopSignal, {
-          threadId: args.threadId,
+          threadId: args.threadId as Id<"threads">,
           stopSignal: true,
         });
         return null;
@@ -697,9 +713,9 @@ export function defineAgentApi(
       args: {
         threadId: v.string(),
       },
-      returns: v.union(vThreadDoc, v.null()),
+      returns: v.union(vClientThreadDoc, v.null()),
       handler: async (ctx, args) => {
-        return ctx.runQuery(component.threads.get, { threadId: args.threadId });
+        return ctx.runQuery(component.threads.get, { threadId: args.threadId as Id<"threads"> });
       },
     }),
     listMessages: query({
@@ -707,7 +723,7 @@ export function defineAgentApi(
         threadId: v.string(),
       },
       handler: async (ctx, args): Promise<MessageDoc[]> => {
-        return ctx.runQuery(component.messages.list, { threadId: args.threadId });
+        return ctx.runQuery(component.messages.list, { threadId: args.threadId as Id<"threads"> });
       },
     }),
     listMessagesWithStreams: query({

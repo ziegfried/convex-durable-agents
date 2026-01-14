@@ -1,11 +1,11 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import { internalQuery, mutation, query } from "./_generated/server.js";
 import { vThreadStatus } from "./schema.js";
 
 // Public thread shape
 export type ThreadDoc = {
-  _id: string;
+  _id: Id<"threads">;
   _creationTime: number;
   status: Doc<"threads">["status"];
   stopSignal: boolean;
@@ -15,7 +15,7 @@ export type ThreadDoc = {
 
 function publicThread(thread: Doc<"threads">): ThreadDoc {
   return {
-    _id: thread._id as string,
+    _id: thread._id,
     _creationTime: thread._creationTime,
     status: thread.status,
     stopSignal: thread.stopSignal,
@@ -26,7 +26,7 @@ function publicThread(thread: Doc<"threads">): ThreadDoc {
 
 // Thread doc validator for return types
 export const vThreadDoc = v.object({
-  _id: v.string(),
+  _id: v.id("threads"),
   _creationTime: v.number(),
   status: vThreadStatus,
   stopSignal: v.boolean(),
@@ -35,7 +35,7 @@ export const vThreadDoc = v.object({
 });
 
 export const vThreadDocWithStreamFnHandle = v.object({
-  _id: v.string(),
+  _id: v.id("threads"),
   _creationTime: v.number(),
   status: vThreadStatus,
   stopSignal: v.boolean(),

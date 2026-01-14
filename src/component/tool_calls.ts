@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
 
 // Public tool call shape
 export type ToolCallDoc = {
-  _id: string;
+  _id: Id<"tool_calls">;
   _creationTime: number;
-  threadId: string;
+  threadId: Id<"threads">;
   toolCallId: string;
   toolName: string;
   args: unknown;
@@ -16,9 +16,9 @@ export type ToolCallDoc = {
 
 function publicToolCall(toolCall: Doc<"tool_calls">): ToolCallDoc {
   return {
-    _id: toolCall._id as string,
+    _id: toolCall._id,
     _creationTime: toolCall._creationTime,
-    threadId: toolCall.threadId as string,
+    threadId: toolCall.threadId,
     toolCallId: toolCall.toolCallId,
     toolName: toolCall.toolName,
     args: toolCall.args,
@@ -29,9 +29,9 @@ function publicToolCall(toolCall: Doc<"tool_calls">): ToolCallDoc {
 
 // Tool call doc validator for return types
 export const vToolCallDoc = v.object({
-  _id: v.string(),
+  _id: v.id("tool_calls"),
   _creationTime: v.number(),
-  threadId: v.string(),
+  threadId: v.id("threads"),
   toolCallId: v.string(),
   toolName: v.string(),
   args: v.any(),

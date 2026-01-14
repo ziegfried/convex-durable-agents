@@ -1,22 +1,22 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.js";
+import type { Doc, Id } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
 import { vMessage } from "./schema.js";
 
 // Public message shape
 export type MessageDoc = {
-  _id: string;
+  _id: Id<"messages">;
   _creationTime: number;
-  threadId: string;
+  threadId: Id<"threads">;
   order: number;
   message: Doc<"messages">["message"];
 };
 
 function publicMessage(message: Doc<"messages">): MessageDoc {
   return {
-    _id: message._id as string,
+    _id: message._id,
     _creationTime: message._creationTime,
-    threadId: message.threadId as string,
+    threadId: message.threadId,
     order: message.order,
     message: message.message,
   };
@@ -24,9 +24,9 @@ function publicMessage(message: Doc<"messages">): MessageDoc {
 
 // Message doc validator for return types
 export const vMessageDoc = v.object({
-  _id: v.string(),
+  _id: v.id("messages"),
   _creationTime: v.number(),
-  threadId: v.string(),
+  threadId: v.id("threads"),
   order: v.number(),
   message: vMessage,
 });
