@@ -1,0 +1,386 @@
+import type { FunctionHandle } from "convex/server";
+import { v } from "convex/values";
+import { api, internal } from "./_generated/api.js";
+import { internalAction, internalMutation, mutation } from "./_generated/server.js";
+
+/**
+ * Continue the agent stream - called to start or resume processing
+ *
+ * This action is called by the client via the DurableAgent class.
+ * It receives the model, instructions, and tool definitions at runtime.
+ */
+export const continueStream = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Check thread status
+    const thread = await ctx.runQuery(internal.threads.getWithStreamFnHandle, { threadId: args.threadId });
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+
+    // Check stop signal
+    if (thread.stopSignal) {
+      await ctx.runMutation(api.threads.setStatus, {
+        threadId: args.threadId,
+        status: "stopped",
+      });
+      return null;
+    }
+
+    // Check if we can continue (must be streaming or awaiting_tool_results with no pending)
+    if (thread.status !== "streaming" && thread.status !== "awaiting_tool_results") {
+      console.log(`Thread ${args.threadId} is ${thread.status}, cannot continue`);
+      return null;
+    }
+
+    // Check for pending tool calls
+    const pendingToolCalls = await ctx.runQuery(api.tool_calls.listPending, {
+      threadId: args.threadId,
+    });
+    if (pendingToolCalls.length > 0) {
+      console.log(`Thread ${args.threadId} has ${pendingToolCalls.length} pending tool calls`);
+      return null;
+    }
+
+    const streamId = crypto.randomUUID();
+
+    // Set status to streaming
+    await ctx.runMutation(api.threads.setStatus, {
+      threadId: args.threadId,
+      status: "streaming",
+      streamId,
+    });
+
+    // Load message history
+    await ctx.scheduler.runAfter(0, thread.streamFnHandle as FunctionHandle<"action">, {
+      threadId: args.threadId,
+      streamId,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Schedule a tool call for execution
+ */
+export const scheduleToolCall = mutation({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    toolName: v.string(),
+    args: v.any(),
+    handler: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Create the tool call record
+    await ctx.db.insert("tool_calls", {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      args: args.args,
+    });
+
+    // Schedule the tool execution
+    await ctx.scheduler.runAfter(0, internal.agent.executeToolCall, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      handler: args.handler,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Schedule an async tool call - creates the record and notifies the callback,
+ * but does NOT wait for the result. The result must be provided later via addToolResult.
+ */
+export const scheduleAsyncToolCall = mutation({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    toolName: v.string(),
+    args: v.any(),
+    callback: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Create the tool call record (will remain pending until addToolResult is called)
+    await ctx.db.insert("tool_calls", {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      args: args.args,
+    });
+
+    // Schedule the callback to notify the user - it does NOT return the result
+    await ctx.scheduler.runAfter(0, internal.agent.executeAsyncToolCallback, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      args: args.args,
+      callback: args.callback,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Execute a tool call
+ */
+export const executeToolCall = internalAction({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    handler: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Get the tool call record
+    const toolCall = await ctx.runQuery(api.tool_calls.getByToolCallId, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+    });
+
+    if (!toolCall) {
+      throw new Error(`Tool call ${args.toolCallId} not found`);
+    }
+
+    let result: unknown;
+    let error: string | undefined;
+
+    try {
+      // Execute the tool handler
+      // The handler string is passed from the client and we need to resolve it
+      // For now, we'll use ctx.runAction with a dynamic reference
+      // This requires the handler to be a proper function reference string
+      result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolCall.args);
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+
+    // Update the tool call record
+    if (error) {
+      await ctx.runMutation(api.tool_calls.setError, {
+        id: toolCall._id as any,
+        error,
+      });
+    } else {
+      await ctx.runMutation(api.tool_calls.setResult, {
+        id: toolCall._id as any,
+        result,
+      });
+    }
+
+    // Add tool result message
+    await ctx.runMutation(api.messages.add, {
+      threadId: args.threadId,
+      message: {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: args.toolCallId,
+            toolName: toolCall.toolName,
+            output: error ? { type: "error-json", value: { error } } : { type: "json", value: result },
+          },
+        ],
+      },
+    });
+
+    // Check if all tool calls are complete
+    await ctx.runMutation(internal.agent.onToolComplete, {
+      threadId: args.threadId,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Execute an async tool callback - notifies the callback but does NOT wait for a result.
+ * The callback receives the tool call info and can start a workflow, send a notification, etc.
+ */
+export const executeAsyncToolCallback = internalAction({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    toolName: v.string(),
+    args: v.any(),
+    callback: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      // Call the callback with the tool call info - it does NOT return the result
+      await ctx.runAction(args.callback as FunctionHandle<"action">, {
+        threadId: args.threadId,
+        toolCallId: args.toolCallId,
+        toolName: args.toolName,
+        args: args.args,
+      });
+    } catch (e) {
+      // Log callback errors but don't fail - the tool call remains pending
+      // The user can still call addToolResult later
+      console.error(`Async tool callback error for ${args.toolCallId}:`, e);
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Called after each tool completes to check if we should continue
+ */
+export const onToolComplete = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Check thread status
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+
+    // Check stop signal
+    if (thread.stopSignal) {
+      await ctx.db.patch(args.threadId, { status: "stopped" });
+      return null;
+    }
+
+    // Check for pending tool calls
+    const toolCalls = await ctx.db
+      .query("tool_calls")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .collect();
+
+    const pending = toolCalls.filter((tc) => tc.result === undefined && tc.error === undefined);
+
+    if (pending.length === 0) {
+      // All tool calls complete - schedule continuation
+      await ctx.scheduler.runAfter(0, api.agent.continueStream, {
+        threadId: args.threadId,
+      });
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Add a tool result for an async tool call.
+ * This is called by the user after they have the result for an async tool.
+ */
+export const addToolResult = mutation({
+  args: {
+    toolCallId: v.string(),
+    result: v.any(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const toolCall = await ctx.db
+      .query("tool_calls")
+      .withIndex("by_tool_call_id", (q) => q.eq("toolCallId", args.toolCallId))
+      .unique();
+
+    if (!toolCall) {
+      throw new Error(`Tool call ${args.toolCallId} not found`);
+    }
+
+    const threadId = toolCall.threadId;
+    // Check if already completed
+    if (toolCall.result !== undefined || toolCall.error !== undefined) {
+      throw new Error(`Tool call ${args.toolCallId} already has a result`);
+    }
+
+    // Update the tool call record with the result
+    await ctx.db.patch(toolCall._id, { result: args.result });
+
+    // Add tool result message
+    await ctx.runMutation(api.messages.add, {
+      threadId: threadId,
+      message: {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: args.toolCallId,
+            toolName: toolCall.toolName,
+            output: { type: "json", value: args.result },
+          },
+        ],
+      },
+    });
+
+    // Check if all tool calls are complete and continue if so
+    await ctx.runMutation(internal.agent.onToolComplete, {
+      threadId: threadId,
+    });
+
+    return null;
+  },
+});
+
+/**
+ * Add a tool error for an async tool call.
+ * This is called by the user when an async tool fails.
+ */
+export const addToolError = mutation({
+  args: {
+    toolCallId: v.string(),
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    // Find the tool call record
+    const toolCall = await ctx.db
+      .query("tool_calls")
+      .withIndex("by_tool_call_id", (q) => q.eq("toolCallId", args.toolCallId))
+      .unique();
+
+    if (!toolCall) {
+      throw new Error(`Tool call ${args.toolCallId} not found`);
+    }
+
+    const threadId = toolCall.threadId;
+
+    // Check if already completed
+    if (toolCall.result !== undefined || toolCall.error !== undefined) {
+      throw new Error(`Tool call ${args.toolCallId} already has a result`);
+    }
+
+    // Update the tool call record with the error
+    await ctx.db.patch(toolCall._id, { error: args.error });
+
+    // Add tool result message with error
+    await ctx.runMutation(api.messages.add, {
+      threadId: threadId,
+      message: {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: args.toolCallId,
+            toolName: toolCall.toolName,
+            output: { type: "error-json", value: { error: args.error } },
+          },
+        ],
+      },
+    });
+
+    // Check if all tool calls are complete and continue if so
+    await ctx.runMutation(internal.agent.onToolComplete, {
+      threadId: threadId,
+    });
+
+    return null;
+  },
+});
