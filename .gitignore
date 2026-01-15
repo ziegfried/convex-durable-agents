@@ -13,3 +13,6 @@ node_modules
 # npm pack output
 *.tgz
 *.tsbuildinfo
+
+.claude/settings.local.json
+package-lock.json

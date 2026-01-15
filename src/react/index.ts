@@ -83,6 +83,7 @@ const INITIAL_CHARS_PER_SEC = 128;
 export type SmoothTextOptions = {
   charsPerSec?: number;
   startStreaming?: boolean;
+  nowFn?: () => number;
 };
 
 /**
@@ -90,18 +91,19 @@ export type SmoothTextOptions = {
  */
 export function useSmoothText(
   text: string,
-  { charsPerSec = INITIAL_CHARS_PER_SEC, startStreaming = false }: SmoothTextOptions = {},
+  { charsPerSec = INITIAL_CHARS_PER_SEC, startStreaming = false, nowFn = Date.now }: SmoothTextOptions = {},
 ): [string, { cursor: number; isStreaming: boolean }] {
   const [visibleText, setVisibleText] = useState(startStreaming ? "" : text || "");
   const smoothState = useRef({
-    tick: Date.now(),
+    tick: nowFn(),
     cursor: visibleText.length,
-    lastUpdate: Date.now(),
+    lastUpdate: nowFn(),
     lastUpdateLength: text.length,
     charsPerMs: charsPerSec / 1000,
     initial: true,
   });
 
+  // eslint-disable-next-line react-hooks/refs
   const isStreaming = smoothState.current.cursor < text.length;
 
   useEffect(() => {
@@ -143,6 +145,7 @@ export function useSmoothText(
     return () => clearInterval(interval);
   }, [text, isStreaming, charsPerSec]);
 
+  // eslint-disable-next-line react-hooks/refs
   return [visibleText, { cursor: smoothState.current.cursor, isStreaming }];
 }
 
@@ -487,12 +490,15 @@ function dedupeMessages(messages: Array<UIMessage>, streamMessages: Array<UIMess
 /**
  * Hook to fetch delta streams for streaming messages
  */
+/* eslint-disable react-hooks/refs */
 export function useDeltaStreams(
   query: StreamingMessagesQuery,
   args: { threadId: string } | "skip",
   options?: { startOrder?: number; skipStreamIds?: Array<string> },
 ): { streamMessage: StreamMessage; deltas: Array<StreamDelta> }[] | undefined {
-  const [state] = useState<{
+  // Using ref for mutable state that persists across renders without triggering re-renders.
+  // This is intentional - we need to track state during render for streaming data synchronization.
+  const state = useRef<{
     startOrder: number;
     threadId: string | undefined;
     deltaStreams: Array<{ streamMessage: StreamMessage; deltas: Array<StreamDelta> }> | undefined;
@@ -503,17 +509,17 @@ export function useDeltaStreams(
   });
   const [cursors, setCursors] = useState<Record<string, number>>({});
 
-  if (args !== "skip" && state.threadId !== args.threadId) {
-    state.threadId = args.threadId;
-    state.deltaStreams = undefined;
-    state.startOrder = options?.startOrder ?? 0;
+  if (args !== "skip" && state.current.threadId !== args.threadId) {
+    state.current.threadId = args.threadId;
+    state.current.deltaStreams = undefined;
+    state.current.startOrder = options?.startOrder ?? 0;
     setCursors({});
   }
 
-  if (state.deltaStreams?.length || (options?.startOrder && options.startOrder < state.startOrder)) {
+  if (state.current.deltaStreams?.length || (options?.startOrder && options.startOrder < state.current.startOrder)) {
     const cacheFriendlyStartOrder = options?.startOrder ? options.startOrder - (options.startOrder % 10) : 0;
-    if (cacheFriendlyStartOrder !== state.startOrder) {
-      state.startOrder = cacheFriendlyStartOrder;
+    if (cacheFriendlyStartOrder !== state.current.startOrder) {
+      state.current.startOrder = cacheFriendlyStartOrder;
     }
   }
 
@@ -524,7 +530,7 @@ export function useDeltaStreams(
       ? args
       : {
           threadId: args.threadId,
-          streamArgs: { kind: "list", startOrder: state.startOrder } as StreamArgs,
+          streamArgs: { kind: "list", startOrder: state.current.startOrder } as StreamArgs,
         },
   ) as { streams: Extract<SyncStreamsReturnValue, { kind: "list" }> } | undefined;
 
@@ -532,7 +538,7 @@ export function useDeltaStreams(
     args === "skip"
       ? undefined
       : !streamList
-        ? state.deltaStreams?.map(({ streamMessage }) => streamMessage)
+        ? state.current.deltaStreams?.map(({ streamMessage }) => streamMessage)
         : sorted(
             (streamList.streams?.messages ?? []).filter(
               ({ streamId, order }) =>
@@ -580,9 +586,9 @@ export function useDeltaStreams(
     }
     setCursors(newCursors);
 
-    state.deltaStreams = streamMessages.map((streamMessage) => {
+    state.current.deltaStreams = streamMessages.map((streamMessage) => {
       const streamId = streamMessage.streamId;
-      const old = state.deltaStreams?.find((ds) => ds.streamMessage.streamId === streamId);
+      const old = state.current.deltaStreams?.find((ds) => ds.streamMessage.streamId === streamId);
       const deltasList = newDeltasByStreamId.get(streamId);
       if (!deltasList && streamMessage === old?.streamMessage) {
         return old;
@@ -594,8 +600,9 @@ export function useDeltaStreams(
     });
   }
 
-  return state.deltaStreams;
+  return state.current.deltaStreams;
 }
+/* eslint-enable react-hooks/refs */
 
 /**
  * Hook to fetch streaming UIMessages from delta streams
@@ -635,6 +642,7 @@ export function useStreamingUIMessages(
       const uiMessage = updateFromTextStreamParts(blankUIMessage(streamMessage), parts);
       newMessageState[streamMessage.streamId] = { uiMessage, cursor };
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessageState(newMessageState);
   }, [messageState, streams]);
 

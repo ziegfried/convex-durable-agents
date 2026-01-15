@@ -129,7 +129,7 @@ export function createActionTool<INPUT, OUTPUT>(def: {
   // Convert the Zod schema to JSON Schema format using Zod v4's native method
   const jsonSchemaObj = z.toJSONSchema(def.args) as Record<string, unknown>;
   // Remove $schema field as Convex doesn't allow fields starting with $
-  const { $schema, ...cleanSchema } = jsonSchemaObj;
+  const { $schema: _, ...cleanSchema } = jsonSchemaObj;
   return {
     type: "sync",
     description: def.description,
@@ -150,7 +150,7 @@ export function createAsyncTool<INPUT>(def: {
   // Convert the Zod schema to JSON Schema format using Zod v4's native method
   const jsonSchemaObj = z.toJSONSchema(def.args) as Record<string, unknown>;
   // Remove $schema field as Convex doesn't allow fields starting with $
-  const { $schema, ...cleanSchema } = jsonSchemaObj;
+  const { $schema:_, ...cleanSchema } = jsonSchemaObj;
   return {
     type: "async",
     description: def.description,
