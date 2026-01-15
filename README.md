@@ -11,11 +11,11 @@ A Convex component for building durable AI agents with an async tool loop. The g
 - **Async Execution**: Agent tool loop is executed asynchronously to avoid time limits of convex actions
 - **Tool Execution**: via convex actions - support for both sync and async tools
 - **Automatic Retries**: Failed tool calls are automatically retried
+- **Workpool Support**: Optionally route agent and tool execution through `@convex-dev/workpool` for parallelism control and retry mechanisms
 
 ## Roadmap
 
 - **Durable Execution**: Agent tool loops survive crashes and dev server restarts
-- **Workpool/Workflow Support**: Support for workpool and workflow execution
 
 ## Installation
 
@@ -227,10 +227,14 @@ type AgentApiOptions = {
     ctx: QueryCtx | MutationCtx | ActionCtx,
     threadId: string,
   ) => Promise<void> | void;
+  workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
 };
 ```
 
-The `authorizationCallback` is called before any operation that accesses an existing thread. Use it to verify the user has permission to access the thread. Throw an error to deny access.
+- `authorizationCallback` - Called before any operation that accesses an existing thread. Use it to verify the user has permission to access the thread. Throw an error to deny access.
+- `workpoolEnqueueAction` - Route agent and tool execution through a workpool for parallelism control
+- `toolExecutionWorkpoolEnqueueAction` - Override workpool for tool execution only (falls back to `workpoolEnqueueAction` if not set)
 
 **Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`, `listMessagesWithStreams`, `deleteThread`
 
@@ -360,6 +364,80 @@ Threads can be in one of these states:
 - `completed` - Conversation finished successfully
 - `failed` - An error occurred
 - `stopped` - User stopped the conversation
+
+## Workpool Integration
+
+For advanced use cases, you can route agent execution through the `@convex-dev/workpool` component. This provides:
+
+- **Parallelism Control**: Limit concurrent AI model calls and tool executions
+- **Retry Mechanisms**: Automatic retries with exponential backoff for failed actions
+- **Rate Limiting Protection**: Prevent overwhelming external APIs
+
+### Setup
+
+1. Install and configure the workpool component:
+
+```ts
+// convex/convex.config.ts
+import { defineApp } from "convex/server";
+import durableAgents from "convex-durable-agents/convex.config.js";
+import workpool from "@convex-dev/workpool/convex.config.js";
+
+const app = defineApp();
+app.use(durableAgents);
+app.use(workpool, { name: "agentWorkpool" });
+
+export default app;
+```
+
+2. Create the workpool bridge:
+
+```ts
+// convex/workpool.ts
+import { Workpool } from "@convex-dev/workpool";
+import { components } from "./_generated/api";
+import { createWorkpoolBridge } from "convex-durable-agents";
+
+const pool = new Workpool(components.agentWorkpool, {
+  maxParallelism: 5,
+});
+
+export const { enqueueWorkpoolAction } = createWorkpoolBridge(pool);
+```
+
+3. Pass the workpool to your agent API:
+
+```ts
+// convex/chat.ts
+export const {
+  createThread,
+  sendMessage,
+  // ...
+} = defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
+  workpoolEnqueueAction: internal.workpool.enqueueWorkpoolAction,
+});
+```
+
+### Separate Workpools for Tools
+
+You can use different workpools for the stream handler and tool execution:
+
+```ts
+// convex/workpool.ts
+const agentPool = new Workpool(components.agentWorkpool, { maxParallelism: 3 });
+const toolPool = new Workpool(components.toolWorkpool, { maxParallelism: 10 });
+
+export const { enqueueWorkpoolAction: enqueueAgentAction } = createWorkpoolBridge(agentPool);
+export const { enqueueWorkpoolAction: enqueueToolAction } = createWorkpoolBridge(toolPool);
+```
+
+```ts
+// convex/chat.ts
+defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
+  workpoolEnqueueAction: internal.workpool.enqueueAgentAction,
+  toolExecutionWorkpoolEnqueueAction: internal.workpool.enqueueToolAction,
+});
+```
 
 ## Architecture
 
