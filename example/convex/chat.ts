@@ -9,7 +9,7 @@ import {
 
 // Note: In a real app, you would configure your AI model here.
 // This example uses a placeholder - you'll need to set up your own model.
-// 
+//
 // Example with OpenAI:
 // import { openai } from "@ai-sdk/openai";
 // const model = openai("gpt-4o");
@@ -24,7 +24,7 @@ import {
  */
 export const chatAgentHandler = streamHandlerAction(components.durable_agent, {
   model: 'anthropic/claude-sonnet-4.5',
-  system: `You are a helpful, friendly AI assistant. 
+  system: `You are a helpful, friendly AI assistant.
     You can help users with various tasks and answer their questions.
     Be concise but thorough in your responses.
     When checking the weather, always provide both the conditions and temperature.`,
@@ -51,6 +51,9 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agent, {
 /**
  * Export the agent API functions.
  * These are the public functions that your app will call.
+ *
+ * To make the API internal (only callable from other Convex functions), use
+ * `defineInternalAgentApi` instead.
  */
 export const {
   getThread,

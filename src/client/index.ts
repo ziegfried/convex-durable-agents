@@ -3,13 +3,19 @@ import {
   actionGeneric,
   createFunctionHandle,
   type FunctionReference,
+  type FunctionVisibility,
   type GenericActionCtx,
   type GenericDataModel,
   type GenericMutationCtx,
   type GenericQueryCtx,
   internalActionGeneric,
+  internalMutationGeneric,
+  internalQueryGeneric,
   mutationGeneric,
   queryGeneric,
+  type RegisteredAction,
+  type RegisteredMutation,
+  type RegisteredQuery,
 } from "convex/server";
 import { v } from "convex/values";
 import { z } from "zod";
@@ -46,6 +52,8 @@ export type ThreadDoc = {
   _creationTime: number;
   status: ThreadStatus;
   stopSignal: boolean;
+  streamId?: string | null;
+  streamFnHandle: string;
 };
 
 const vThreadStatus = v.union(
@@ -604,13 +612,57 @@ async function checkThreadIsIdle(component: ComponentApi, ctx: MutationCtx, thre
   }
 }
 
-export function defineAgentApi(
+export type StreamArgs =
+  | { kind: "list"; startOrder?: number }
+  | { kind: "deltas"; cursors: Array<{ streamId: string; cursor: number }> };
+
+export type StreamMessage = {
+  streamId: string;
+  status: "streaming" | "finished" | "aborted";
+  format?: "UIMessageChunk" | "TextStreamPart";
+  order: number;
+  threadId: string;
+};
+
+export type StreamDelta = {
+  streamId: string;
+  start: number;
+  end: number;
+  parts: Array<unknown>;
+};
+
+export type MessagesWithStreamsResult = {
+  messages: MessageDoc[];
+  streams?:
+    | { kind: "list"; messages: StreamMessage[] }
+    | { kind: "deltas"; deltas: StreamDelta[] };
+};
+
+export type AgentApi<V extends FunctionVisibility = "public"> = {
+  createThread: RegisteredAction<V, { prompt?: string }, string>;
+  sendMessage: RegisteredMutation<V, { threadId: string; prompt: string }, null>;
+  resumeThread: RegisteredMutation<V, { threadId: string; prompt?: string }, null>;
+  stopThread: RegisteredMutation<V, { threadId: string }, null>;
+  getThread: RegisteredQuery<V, { threadId: string }, ThreadDoc | null>;
+  listMessages: RegisteredQuery<V, { threadId: string }, MessageDoc[]>;
+  listMessagesWithStreams: RegisteredQuery<
+    V,
+    { threadId: string; streamArgs?: StreamArgs },
+    MessagesWithStreamsResult
+  >;
+  listThreads: RegisteredQuery<V, { limit?: number }, ThreadDoc[]>;
+  deleteThread: RegisteredMutation<V, { threadId: string }, null>;
+  addToolResult: RegisteredMutation<V, { toolCallId: string; result: unknown }, null>;
+  addToolError: RegisteredMutation<V, { toolCallId: string; error: string }, null>;
+};
+
+function createAgentApi(
   component: ComponentApi,
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
+  action: typeof actionGeneric | typeof internalActionGeneric,
+  query: typeof queryGeneric | typeof internalQueryGeneric,
+  mutation: typeof mutationGeneric | typeof internalMutationGeneric,
 ) {
-  const action = actionGeneric;
-  const query = queryGeneric;
-  const mutation = mutationGeneric;
 
   return {
     createThread: action({
@@ -833,4 +885,36 @@ export function defineAgentApi(
       },
     }),
   };
+}
+
+/**
+ * Define a public agent API that can be called from clients.
+ */
+export function defineAgentApi(
+  component: ComponentApi,
+  ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
+): AgentApi<"public"> {
+  return createAgentApi(
+    component,
+    ref,
+    actionGeneric,
+    queryGeneric,
+    mutationGeneric,
+  ) as AgentApi<"public">;
+}
+
+/**
+ * Define an internal agent API that can only be called from other Convex functions.
+ */
+export function defineInternalAgentApi(
+  component: ComponentApi,
+  ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
+): AgentApi<"internal"> {
+  return createAgentApi(
+    component,
+    ref,
+    internalActionGeneric,
+    internalQueryGeneric,
+    internalMutationGeneric,
+  ) as AgentApi<"internal">;
 }
