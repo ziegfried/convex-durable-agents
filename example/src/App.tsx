@@ -3,7 +3,15 @@ import "./App.css";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { useState, useRef, useEffect } from "react";
-import { useThread, useSmoothText, type UIMessage } from "convex-durable-agents/react";
+import {
+  useThread,
+  useSmoothText,
+  getMessageText,
+  getMessageKey,
+  getMessageStatus,
+  type UIMessage,
+  type DynamicToolUIPart,
+} from "convex-durable-agents/react";
 
 // ============================================================================
 // Components
@@ -64,37 +72,15 @@ function StatusBadge({ status }: { status: string }) {
  * Single chat message component
  */
 function ChatMessage({ message }: { message: UIMessage }) {
-  const isStreaming = message.status === "streaming" || message.status === "awaiting_tool_results";
+  const status = getMessageStatus(message);
+  const isStreaming = status === "streaming" || status === "awaiting_tool_results";
 
-  // Extract text content from parts
-  const textContent = message.parts
-    .filter((part): part is { type: "text"; text: string } => {
-      return typeof part === "object" && part !== null && (part as { type?: string }).type === "text";
-    })
-    .map((part) => part.text)
-    .join("");
+  // Extract text content using helper
+  const textContent = getMessageText(message);
 
-  // Extract tool invocations
+  // Extract tool invocations (AI SDK's DynamicToolUIPart format)
   const toolInvocations = message.parts.filter(
-    (
-      part,
-    ): part is {
-      type: "tool-invocation";
-      toolCallId: string;
-      toolName: string;
-      args: unknown;
-      result?: unknown;
-      state: string;
-    } => {
-      return typeof part === "object" && part !== null && (part as { type?: string }).type === "tool-invocation";
-    },
-  );
-
-  // Extract standalone tool calls
-  const toolCalls = message.parts.filter(
-    (part): part is { type: "tool-call"; toolCallId: string; toolName: string; input: unknown } => {
-      return typeof part === "object" && part !== null && (part as { type?: string }).type === "tool-call";
-    },
+    (part): part is DynamicToolUIPart => part.type === "dynamic-tool",
   );
 
   const isUser = message.role === "user";
@@ -130,29 +116,13 @@ function ChatMessage({ message }: { message: UIMessage }) {
           >
             <div style={{ fontWeight: "bold", marginBottom: "0.25rem" }}>
               🔧 {tc.toolName}
-              {tc.state === "result" ? " ✓" : " ..."}
+              {tc.state === "output-available" ? " ✓" : " ..."}
             </div>
-            {tc.result !== undefined && (
+            {tc.state === "output-available" && tc.output !== undefined && (
               <pre style={{ margin: 0, fontSize: "0.75rem", whiteSpace: "pre-wrap" }}>
-                {JSON.stringify(tc.result, null, 2)}
+                {JSON.stringify(tc.output, null, 2)}
               </pre>
             )}
-          </div>
-        ))}
-
-        {/* Standalone tool calls */}
-        {toolCalls.map((tc) => (
-          <div
-            key={tc.toolCallId}
-            style={{
-              marginBottom: "0.5rem",
-              padding: "0.5rem",
-              borderRadius: "0.5rem",
-              backgroundColor: "rgba(0,0,0,0.1)",
-              fontSize: "0.875rem",
-            }}
-          >
-            <div style={{ fontWeight: "bold" }}>🔧 Calling {tc.toolName}...</div>
           </div>
         ))}
 
@@ -164,7 +134,7 @@ function ChatMessage({ message }: { message: UIMessage }) {
         )}
 
         {/* Loading indicator */}
-        {isStreaming && !textContent && toolCalls.length === 0 && toolInvocations.length === 0 && (
+        {isStreaming && !textContent && toolInvocations.length === 0 && (
           <div style={{ color: "rgba(0,0,0,0.5)" }}>Thinking...</div>
         )}
       </div>
@@ -383,7 +353,7 @@ function ChatView({ threadId }: { threadId: string }) {
         )}
 
         {messages.map((message) => (
-          <ChatMessage key={message.key} message={message} />
+          <ChatMessage key={getMessageKey(message)} message={message} />
         ))}
 
         {isFailed && (
