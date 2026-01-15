@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Function to define internal agent API
+
 ## 0.1.0
 
 - Initial release of Convex Durable Agents
