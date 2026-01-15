@@ -7,7 +7,8 @@ type MutationCtx = GenericMutationCtx<GenericDataModel>;
 
 /**
  * Helper to enqueue an action either via workpool or direct scheduler.
- * @param action - Either a FunctionHandle string or a FunctionReference
+ * @param action - A FunctionHandle string (for workpool) or FunctionReference (for scheduler)
+ * @param workpoolHandle - If provided and action is a string, use workpool; otherwise use scheduler
  */
 async function enqueueAction(
   ctx: MutationCtx,
@@ -16,11 +17,12 @@ async function enqueueAction(
   action: FunctionHandle<"action"> | FunctionReference<"action", any, any, any>,
   args: Record<string, unknown>,
 ) {
-  if (workpoolHandle) {
-    // Convert FunctionReference to string representation for workpool
-    const actionStr = typeof action === "string" ? action : String(action);
+  // Only use workpool if:
+  // 1. workpoolHandle is provided, AND
+  // 2. action is a string (function handle) - FunctionReferences can't be serialized for workpool
+  if (workpoolHandle && typeof action === "string") {
     await ctx.runMutation(workpoolHandle as FunctionHandle<"mutation">, {
-      action: actionStr,
+      action,
       args,
     });
   } else {
@@ -41,7 +43,9 @@ export const continueStream = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     // Check thread status
-    const thread = await ctx.runQuery(internal.threads.getWithStreamFnHandle, { threadId: args.threadId });
+    const thread = await ctx.runQuery(internal.threads.getWithStreamFnHandle, {
+      threadId: args.threadId,
+    });
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
@@ -122,16 +126,11 @@ export const scheduleToolCall = mutation({
     const workpoolHandle = thread.toolExecutionWorkpoolEnqueueAction ?? thread.workpoolEnqueueAction;
 
     // Schedule the tool execution (via workpool if configured)
-    await enqueueAction(
-      ctx,
-      workpoolHandle,
-      internal.agent.executeToolCall,
-      {
-        threadId: args.threadId,
-        toolCallId: args.toolCallId,
-        handler: args.handler,
-      },
-    );
+    await enqueueAction(ctx, workpoolHandle, internal.agent.executeToolCall, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      handler: args.handler,
+    });
 
     return null;
   },
@@ -169,18 +168,13 @@ export const scheduleAsyncToolCall = mutation({
     const workpoolHandle = thread.toolExecutionWorkpoolEnqueueAction ?? thread.workpoolEnqueueAction;
 
     // Schedule the callback to notify the user (via workpool if configured) - it does NOT return the result
-    await enqueueAction(
-      ctx,
-      workpoolHandle,
-      internal.agent.executeAsyncToolCallback,
-      {
-        threadId: args.threadId,
-        toolCallId: args.toolCallId,
-        toolName: args.toolName,
-        args: args.args,
-        callback: args.callback,
-      },
-    );
+    await enqueueAction(ctx, workpoolHandle, internal.agent.executeAsyncToolCallback, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      toolName: args.toolName,
+      args: args.args,
+      callback: args.callback,
+    });
 
     return null;
   },

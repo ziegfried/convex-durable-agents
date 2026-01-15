@@ -82,6 +82,7 @@
   },
   "devDependencies": {
     "@convex-dev/eslint-plugin": "^1.1.1",
+    "@convex-dev/workpool": "^0.3.1",
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/eslintrc": "^3.3.1",
     "@eslint/js": "9.39.2",

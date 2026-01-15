@@ -220,7 +220,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       create: FunctionReference<
         "mutation",
         "internal",
-        { streamFnHandle: string },
+        {
+          streamFnHandle: string;
+          toolExecutionWorkpoolEnqueueAction?: string;
+          workpoolEnqueueAction?: string;
+        },
         {
           _creationTime: number;
           _id: string;
@@ -233,6 +237,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           stopSignal: boolean;
           streamFnHandle: string;
           streamId?: string | null;
+          toolExecutionWorkpoolEnqueueAction?: string;
+          workpoolEnqueueAction?: string;
         },
         Name
       >;
@@ -252,6 +258,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           stopSignal: boolean;
           streamFnHandle: string;
           streamId?: string | null;
+          toolExecutionWorkpoolEnqueueAction?: string;
+          workpoolEnqueueAction?: string;
         } | null,
         Name
       >;
@@ -271,6 +279,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           stopSignal: boolean;
           streamFnHandle: string;
           streamId?: string | null;
+          toolExecutionWorkpoolEnqueueAction?: string;
+          workpoolEnqueueAction?: string;
         }>,
         Name
       >;
