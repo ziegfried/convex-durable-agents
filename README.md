@@ -2,16 +2,23 @@
 
 [![npm version](https://badge.fury.io/js/convex-durable-agents.svg)](https://badge.fury.io/js/convex-durable-agents)
 
-A Convex component for building durable AI agents with an async tool loop. The goal of this component is to provide a way to build AI agents that can run indefinitely and survive failures and restarts. It provides some of the functionality of the [Convex Agents Component](https://www.convex.dev/components/agent) (such as persistent streaming), while deliberately leaving out some of the more advanced features (context management, RAG, rate limiting, etc.). The component is built on top of the [AI SDK v6](https://ai-sdk.dev/) and aims to expose its full `streamText` API with persistence and durable execution.
+A Convex component for building durable AI agents with an async tool loop. The goal of this component is to provide a
+way to build AI agents that can run indefinitely and survive failures and restarts. It provides some of the
+functionality of the [Convex Agents Component](https://www.convex.dev/components/agent) (such as persistent streaming),
+while deliberately leaving out some of the more advanced features (context management, RAG, rate limiting, etc.). The
+component is built on top of the [AI SDK v6](https://ai-sdk.dev/) SDK and aims to expose its full `streamText` API with
+persistence and durable execution.
 
-**Note:** This component is still in early development and is not yet ready for production use. The API will very likely change before a first stable release.
+**Note:** This component is still in early development and is not yet ready for production use. The API will very likely
+change before a first stable release.
 
 ## Features
 
 - **Async Execution**: Agent tool loop is executed asynchronously to avoid time limits of convex actions
 - **Tool Execution**: via convex actions - support for both sync and async tools
 - **Automatic Retries**: Failed tool calls are automatically retried
-- **Workpool Support**: Optionally route agent and tool execution through `@convex-dev/workpool` for parallelism control and retry mechanisms
+- **Workpool Support**: Optionally route agent and tool execution through `@convex-dev/workpool` for parallelism control
+  and retry mechanisms
 
 ## Roadmap
 
@@ -50,16 +57,12 @@ Create a chat handler with your AI model and tools:
 
 import { z } from "zod";
 import { components, internal } from "./_generated/api";
-import {
-  createActionTool,
-  defineAgentApi,
-  streamHandlerAction,
-} from "convex-durable-agents";
+import { createActionTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
 import { openai } from "@ai-sdk/openai";
 
 // Define the stream handler with your model and tools
 export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
-  model: 'anthropic/claude-haiku-4.5',
+  model: "anthropic/claude-haiku-4.5",
   system: "You are a helpful AI assistant.",
   tools: {
     get_weather: createActionTool({
@@ -96,7 +99,8 @@ export const {
 
 #### Using Internal API
 
-If you want to restrict the agent API to only be callable from other Convex functions (not directly from clients), use `defineInternalAgentApi` instead:
+If you want to restrict the agent API to only be callable from other Convex functions (not directly from clients), use
+`defineInternalAgentApi` instead:
 
 ```ts
 // convex/chat.ts
@@ -112,6 +116,7 @@ export const {
 ```
 
 This is useful when you want to:
+
 - Add authentication/authorization checks before calling agent functions
 - Wrap agent functions with additional business logic
 - Prevent direct client access to the agent API
@@ -131,7 +136,7 @@ export const sendMessage = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
-    
+
     // Call the internal agent API
     return ctx.runMutation(internal.chat.sendMessage, args);
   },
@@ -170,12 +175,12 @@ import { api } from "../convex/_generated/api";
 
 function ChatView({ threadId }: { threadId: string }) {
   const sendMessage = useMutation(api.chat.sendMessage);
-  
+
   const { messages, status, isRunning } = useThread(
     api.chat.listMessagesWithStreams,
     api.chat.getThread,
     { threadId },
-    { stream: true }
+    { stream: true },
   );
 
   return (
@@ -185,7 +190,7 @@ function ChatView({ threadId }: { threadId: string }) {
           <strong>{msg.role}:</strong> {msg.text}
         </div>
       ))}
-      
+
       <input
         onKeyPress={(e) => {
           if (e.key === "Enter" && !isRunning) {
@@ -223,20 +228,20 @@ Creates the full agent API with **public** functions that can be called directly
 
 ```ts
 type AgentApiOptions = {
-  authorizationCallback?: (
-    ctx: QueryCtx | MutationCtx | ActionCtx,
-    threadId: string,
-  ) => Promise<void> | void;
+  authorizationCallback?: (ctx: QueryCtx | MutationCtx | ActionCtx, threadId: string) => Promise<void> | void;
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
 };
 ```
 
-- `authorizationCallback` - Called before any operation that accesses an existing thread. Use it to verify the user has permission to access the thread. Throw an error to deny access.
+- `authorizationCallback` - Called before any operation that accesses an existing thread. Use it to verify the user has
+  permission to access the thread. Throw an error to deny access.
 - `workpoolEnqueueAction` - Route agent and tool execution through a workpool for parallelism control
-- `toolExecutionWorkpoolEnqueueAction` - Override workpool for tool execution only (falls back to `workpoolEnqueueAction` if not set)
+- `toolExecutionWorkpoolEnqueueAction` - Override workpool for tool execution only (falls back to
+  `workpoolEnqueueAction` if not set)
 
-**Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`, `listMessagesWithStreams`, `deleteThread`
+**Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`,
+`listMessagesWithStreams`, `deleteThread`
 
 **Example with ownership check:**
 
@@ -257,8 +262,8 @@ defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
 
 #### `defineInternalAgentApi(component, streamHandler, options?)`
 
-Same as `defineAgentApi` but creates internal functions that can only be called from other Convex functions. Use this when you want to add authentication, authorization, or other business logic before calling agent functions.
-
+Same as `defineAgentApi` but creates internal functions that can only be called from other Convex functions. Use this
+when you want to add authentication, authorization, or other business logic before calling agent functions.
 
 #### `streamHandlerAction(component, options)`
 
@@ -307,20 +312,15 @@ All-in-one hook for thread status and messages:
 
 ```ts
 const {
-  messages,    // UIMessage[]
-  thread,      // ThreadDoc | null
-  status,      // ThreadStatus
-  isLoading,   // boolean
-  isRunning,   // boolean
-  isComplete,  // boolean
-  isFailed,    // boolean
-  isStopped,   // boolean
-} = useThread(
-  api.chat.listMessagesWithStreams,
-  api.chat.getThread,
-  { threadId },
-  { stream: true }
-);
+  messages, // UIMessage[]
+  thread, // ThreadDoc | null
+  status, // ThreadStatus
+  isLoading, // boolean
+  isRunning, // boolean
+  isComplete, // boolean
+  isFailed, // boolean
+  isStopped, // boolean
+} = useThread(api.chat.listMessagesWithStreams, api.chat.getThread, { threadId }, { stream: true });
 ```
 
 #### `useSmoothText(text, options?)`
@@ -339,8 +339,9 @@ const [visibleText, { cursor, isStreaming }] = useSmoothText(text, {
 Subscribe to thread status changes:
 
 ```ts
-const { thread, status, isRunning, isComplete, isFailed, isStopped } = 
-  useThreadStatus(api.chat.getThread, { threadId });
+const { thread, status, isRunning, isComplete, isFailed, isStopped } = useThreadStatus(api.chat.getThread, {
+  threadId,
+});
 ```
 
 #### `useMessages(query, threadQuery, args)`
@@ -348,11 +349,7 @@ const { thread, status, isRunning, isComplete, isFailed, isStopped } =
 Fetch and transform messages:
 
 ```ts
-const { messages, isLoading, thread } = useMessages(
-  api.chat.listMessages,
-  api.chat.getThread,
-  { threadId }
-);
+const { messages, isLoading, thread } = useMessages(api.chat.listMessages, api.chat.getThread, { threadId });
 ```
 
 ## Thread Status

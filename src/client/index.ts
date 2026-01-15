@@ -71,6 +71,8 @@ const vClientThreadDoc = v.object({
   stopSignal: v.boolean(),
   streamId: v.optional(v.union(v.string(), v.null())),
   streamFnHandle: v.string(),
+  workpoolEnqueueAction: v.optional(v.string()),
+  toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
 });
 
 export type MessageDoc = {
@@ -150,7 +152,7 @@ export function createAsyncTool<INPUT>(def: {
   // Convert the Zod schema to JSON Schema format using Zod v4's native method
   const jsonSchemaObj = z.toJSONSchema(def.args) as Record<string, unknown>;
   // Remove $schema field as Convex doesn't allow fields starting with $
-  const { $schema:_, ...cleanSchema } = jsonSchemaObj;
+  const { $schema: _, ...cleanSchema } = jsonSchemaObj;
   return {
     type: "async",
     description: def.description,
@@ -304,7 +306,12 @@ export class DeltaStreamer {
     }
   }
 
-  #createDelta(): { streamId: Id<"streaming_messages">; start: number; end: number; parts: Array<unknown> } | null {
+  #createDelta(): {
+    streamId: Id<"streaming_messages">;
+    start: number;
+    end: number;
+    parts: Array<unknown>;
+  } | null {
     if (!this.streamId || this.#nextParts.length === 0) return null;
     const parts = this.#nextParts.map(serializeForConvex);
     this.#nextParts = [];
@@ -411,14 +418,18 @@ export function streamHandlerAction(
     },
     returns: v.null(),
     handler: async (ctx, args) => {
-      const thread = await ctx.runQuery(component.threads.get, { threadId: args.threadId });
+      const thread = await ctx.runQuery(component.threads.get, {
+        threadId: args.threadId,
+      });
 
       if (thread?.streamId !== args.streamId) {
         throw new Error(`Thread ${args.threadId} streamId mismatch: ${thread?.streamId} !== ${args.streamId}`);
       }
 
       // Get the current message order for streaming
-      const messages = await ctx.runQuery(component.messages.list, { threadId: args.threadId });
+      const messages = await ctx.runQuery(component.messages.list, {
+        threadId: args.threadId,
+      });
       const currentOrder = messages.length > 0 ? Math.max(...messages.map((m) => m.order)) + 1 : 0;
 
       // Set up delta streamer if enabled
@@ -468,7 +479,11 @@ export function streamHandlerAction(
           // Consume the stream
           const assistantContent: Array<unknown> = [];
           let finishReason: string | undefined;
-          const toolCalls: Array<{ toolCallId: string; toolName: string; args: unknown }> = [];
+          const toolCalls: Array<{
+            toolCallId: string;
+            toolName: string;
+            args: unknown;
+          }> = [];
 
           for await (const part of result.fullStream) {
             // Send delta to streamer if enabled
@@ -637,9 +652,7 @@ export type StreamDelta = {
 
 export type MessagesWithStreamsResult = {
   messages: MessageDoc[];
-  streams?:
-    | { kind: "list"; messages: StreamMessage[] }
-    | { kind: "deltas"; deltas: StreamDelta[] };
+  streams?: { kind: "list"; messages: StreamMessage[] } | { kind: "deltas"; deltas: StreamDelta[] };
 };
 
 export type AgentApi<V extends FunctionVisibility = "public"> = {
@@ -649,11 +662,7 @@ export type AgentApi<V extends FunctionVisibility = "public"> = {
   stopThread: RegisteredMutation<V, { threadId: string }, null>;
   getThread: RegisteredQuery<V, { threadId: string }, ThreadDoc | null>;
   listMessages: RegisteredQuery<V, { threadId: string }, MessageDoc[]>;
-  listMessagesWithStreams: RegisteredQuery<
-    V,
-    { threadId: string; streamArgs?: StreamArgs },
-    MessagesWithStreamsResult
-  >;
+  listMessagesWithStreams: RegisteredQuery<V, { threadId: string; streamArgs?: StreamArgs }, MessagesWithStreamsResult>;
   listThreads: RegisteredQuery<V, { limit?: number }, ThreadDoc[]>;
   deleteThread: RegisteredMutation<V, { threadId: string }, null>;
   addToolResult: RegisteredMutation<V, { toolCallId: string; result: unknown }, null>;
@@ -662,10 +671,7 @@ export type AgentApi<V extends FunctionVisibility = "public"> = {
 
 export type AgentApiOptions = {
   /** Optional authorization callback for thread access control */
-  authorizationCallback?: (
-    ctx: QueryCtx | MutationCtx | ActionCtx,
-    threadId: string,
-  ) => Promise<void> | void;
+  authorizationCallback?: (ctx: QueryCtx | MutationCtx | ActionCtx, threadId: string) => Promise<void> | void;
   /** Optional: Function to enqueue actions via workpool (used for both stream handler and tools unless overridden) */
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Override workpool for tool execution only */
@@ -676,7 +682,10 @@ async function serializeWorkpoolOptions(options?: AgentApiOptions): Promise<{
   workpoolEnqueueAction?: string;
   toolExecutionWorkpoolEnqueueAction?: string;
 }> {
-  const result: { workpoolEnqueueAction?: string; toolExecutionWorkpoolEnqueueAction?: string } = {};
+  const result: {
+    workpoolEnqueueAction?: string;
+    toolExecutionWorkpoolEnqueueAction?: string;
+  } = {};
   if (options?.workpoolEnqueueAction) {
     const handle = await createFunctionHandle(options.workpoolEnqueueAction);
     result.workpoolEnqueueAction = handle.toString();
@@ -687,7 +696,6 @@ async function serializeWorkpoolOptions(options?: AgentApiOptions): Promise<{
   }
   return result;
 }
-
 
 function createAgentApi(
   component: ComponentApi,
@@ -810,7 +818,9 @@ function createAgentApi(
       returns: v.union(vClientThreadDoc, v.null()),
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
-        return ctx.runQuery(component.threads.get, { threadId: args.threadId as Id<"threads"> });
+        return ctx.runQuery(component.threads.get, {
+          threadId: args.threadId as Id<"threads">,
+        });
       },
     }),
     listMessages: query({
@@ -819,7 +829,9 @@ function createAgentApi(
       },
       handler: async (ctx, args): Promise<MessageDoc[]> => {
         if (authorize) await authorize(ctx, args.threadId);
-        return ctx.runQuery(component.messages.list, { threadId: args.threadId as Id<"threads"> });
+        return ctx.runQuery(component.messages.list, {
+          threadId: args.threadId as Id<"threads">,
+        });
       },
     }),
     listMessagesWithStreams: query({
@@ -827,7 +839,10 @@ function createAgentApi(
         threadId: v.string(),
         streamArgs: v.optional(
           v.union(
-            v.object({ kind: v.literal("list"), startOrder: v.optional(v.number()) }),
+            v.object({
+              kind: v.literal("list"),
+              startOrder: v.optional(v.number()),
+            }),
             v.object({
               kind: v.literal("deltas"),
               cursors: v.array(v.object({ streamId: v.string(), cursor: v.number() })),
@@ -841,11 +856,30 @@ function createAgentApi(
       ): Promise<{
         messages: MessageDoc[];
         streams?:
-          | { kind: "list"; messages: Array<{ streamId: string; status: "streaming" | "finished" | "aborted"; format?: "UIMessageChunk" | "TextStreamPart"; order: number; threadId: string }> }
-          | { kind: "deltas"; deltas: Array<{ streamId: string; start: number; end: number; parts: Array<unknown> }> };
+          | {
+              kind: "list";
+              messages: Array<{
+                streamId: string;
+                status: "streaming" | "finished" | "aborted";
+                format?: "UIMessageChunk" | "TextStreamPart";
+                order: number;
+                threadId: string;
+              }>;
+            }
+          | {
+              kind: "deltas";
+              deltas: Array<{
+                streamId: string;
+                start: number;
+                end: number;
+                parts: Array<unknown>;
+              }>;
+            };
       }> => {
         if (authorize) await authorize(ctx, args.threadId);
-        const messages = await ctx.runQuery(component.messages.list, { threadId: args.threadId });
+        const messages = await ctx.runQuery(component.messages.list, {
+          threadId: args.threadId,
+        });
 
         if (!args.streamArgs) {
           return { messages };
@@ -898,7 +932,9 @@ function createAgentApi(
       returns: v.null(),
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
-        await ctx.runMutation(component.threads.remove, { threadId: args.threadId });
+        await ctx.runMutation(component.threads.remove, {
+          threadId: args.threadId,
+        });
         return null;
       },
     }),
@@ -941,14 +977,7 @@ export function defineAgentApi(
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
   options?: AgentApiOptions,
 ): AgentApi<"public"> {
-  return createAgentApi(
-    component,
-    ref,
-    actionGeneric,
-    queryGeneric,
-    mutationGeneric,
-    options,
-  ) as AgentApi<"public">;
+  return createAgentApi(component, ref, actionGeneric, queryGeneric, mutationGeneric, options) as AgentApi<"public">;
 }
 
 /**
@@ -977,13 +1006,18 @@ export function defineInternalAgentApi(
  * Type for a Workpool instance that has an enqueueAction method.
  * This is compatible with @convex-dev/workpool's Workpool class.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WorkpoolLike = {
-  enqueueAction: <Args extends Record<string, unknown>>(
-    ctx: { runMutation: GenericMutationCtx<GenericDataModel>["runMutation"] },
-    fn: FunctionReference<"action", FunctionVisibility, Args, unknown>,
-    fnArgs: Args,
-    options?: unknown,
-  ) => Promise<unknown>;
+  enqueueAction: (
+    ctx: GenericMutationCtx<GenericDataModel>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fn: FunctionReference<"action", FunctionVisibility, any, any>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    fnArgs: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    options?: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) => Promise<any>;
 };
 
 /**

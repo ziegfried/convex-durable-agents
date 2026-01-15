@@ -142,7 +142,12 @@ describe("messages", () => {
         role: "assistant",
         content: [
           { type: "text", text: "Hello" },
-          { type: "tool-call", toolCallId: "call-1", toolName: "test", input: {} },
+          {
+            type: "tool-call",
+            toolCallId: "call-1",
+            toolName: "test",
+            input: {},
+          },
         ],
       },
     });
@@ -240,7 +245,9 @@ describe("tool_calls", () => {
     });
 
     // Both should be pending
-    let pending = await t.query(api.tool_calls.listPending, { threadId: thread._id });
+    let pending = await t.query(api.tool_calls.listPending, {
+      threadId: thread._id,
+    });
     expect(pending.length).toBe(2);
 
     // Complete one
@@ -250,7 +257,9 @@ describe("tool_calls", () => {
     });
 
     // Only one should be pending
-    pending = await t.query(api.tool_calls.listPending, { threadId: thread._id });
+    pending = await t.query(api.tool_calls.listPending, {
+      threadId: thread._id,
+    });
     expect(pending.length).toBe(1);
     expect(pending[0].toolCallId).toBe("call-2");
   });
@@ -328,7 +337,10 @@ describe("agent flow", () => {
             type: "tool-result",
             toolCallId: "weather-call-sf",
             toolName: "get_weather",
-            output: { type: "json", value: { weather: "sunny", temperature: 72 } },
+            output: {
+              type: "json",
+              value: { weather: "sunny", temperature: 72 },
+            },
           },
         ],
       },
@@ -350,7 +362,9 @@ describe("agent flow", () => {
     });
 
     // Verify final state
-    const finalThread = await t.query(api.threads.get, { threadId: thread._id });
+    const finalThread = await t.query(api.threads.get, {
+      threadId: thread._id,
+    });
     expect(finalThread?.status).toBe("completed");
 
     const messages = await t.query(api.messages.list, { threadId: thread._id });
@@ -434,7 +448,9 @@ describe("agent flow", () => {
     await t.mutation(api.threads.remove, { threadId: thread._id });
 
     // Verify thread is gone
-    const deletedThread = await t.query(api.threads.get, { threadId: thread._id });
+    const deletedThread = await t.query(api.threads.get, {
+      threadId: thread._id,
+    });
     expect(deletedThread).toBeNull();
 
     // Verify messages are gone
@@ -442,7 +458,9 @@ describe("agent flow", () => {
     expect(messages.length).toBe(0);
 
     // Verify tool calls are gone
-    const toolCalls = await t.query(api.tool_calls.listPending, { threadId: thread._id });
+    const toolCalls = await t.query(api.tool_calls.listPending, {
+      threadId: thread._id,
+    });
     expect(toolCalls.length).toBe(0);
   });
 });

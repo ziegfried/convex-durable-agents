@@ -107,7 +107,10 @@ export const resume = mutation({
         .order("desc")
         .first();
       if (lastMessage?.message.role === "user") {
-        await ctx.db.patch(args.threadId, { status: "streaming", stopSignal: false });
+        await ctx.db.patch(args.threadId, {
+          status: "streaming",
+          stopSignal: false,
+        });
       } else {
         console.warn(`Cannot resume thread status=${thread.status} without new user message`);
         return null;
@@ -134,7 +137,10 @@ export const setStatus = mutation({
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
-    await ctx.db.patch(args.threadId, { status: args.status, streamId: args.streamId });
+    await ctx.db.patch(args.threadId, {
+      status: args.status,
+      streamId: args.streamId,
+    });
     return null;
   },
 });

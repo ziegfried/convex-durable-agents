@@ -9,10 +9,7 @@ const modules = import.meta.glob("./component/**/*.ts");
  * @param t - The test convex instance, e.g. from calling `convexTest`.
  * @param name - The name of the component, as registered in convex.config.ts.
  */
-export function register(
-  t: TestConvex<SchemaDefinition<GenericSchema, boolean>>,
-  name: string = "durable_agent",
-) {
+export function register(t: TestConvex<SchemaDefinition<GenericSchema, boolean>>, name: string = "durable_agent") {
   t.registerComponent(name, schema, modules);
 }
 export default { register, schema, modules };

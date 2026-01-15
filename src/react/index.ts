@@ -467,24 +467,21 @@ function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>):
  */
 function dedupeMessages(messages: Array<UIMessage>, streamMessages: Array<UIMessage>): Array<UIMessage> {
   const combined = sorted([...messages, ...streamMessages]);
-  return combined.reduce(
-    (msgs, msg) => {
-      const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-      if (!last) {
-        return [msg];
-      }
-      if (last.order !== msg.order) {
-        msgs.push(msg);
-        return msgs;
-      }
-      // Same order - check if we should replace
-      if ((last.status === "streaming" || last.status === "awaiting_tool_results") && msg.status === "success") {
-        return [...msgs.slice(0, -1), msg];
-      }
+  return combined.reduce((msgs, msg) => {
+    const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+    if (!last) {
+      return [msg];
+    }
+    if (last.order !== msg.order) {
+      msgs.push(msg);
       return msgs;
-    },
-    [] as Array<UIMessage>,
-  );
+    }
+    // Same order - check if we should replace
+    if ((last.status === "streaming" || last.status === "awaiting_tool_results") && msg.status === "success") {
+      return [...msgs.slice(0, -1), msg];
+    }
+    return msgs;
+  }, [] as Array<UIMessage>);
 }
 
 /**
@@ -530,7 +527,10 @@ export function useDeltaStreams(
       ? args
       : {
           threadId: args.threadId,
-          streamArgs: { kind: "list", startOrder: state.current.startOrder } as StreamArgs,
+          streamArgs: {
+            kind: "list",
+            startOrder: state.current.startOrder,
+          } as StreamArgs,
         },
   ) as { streams: Extract<SyncStreamsReturnValue, { kind: "list" }> } | undefined;
 
@@ -653,7 +653,10 @@ export function useStreamingUIMessages(
         const uiMessage = messageState[streamMessage.streamId]?.uiMessage;
         if (!uiMessage) return undefined;
         // Update status from stream metadata (more up-to-date than accumulated state)
-        return { ...uiMessage, status: statusFromStreamStatus(streamMessage.status) };
+        return {
+          ...uiMessage,
+          status: statusFromStreamStatus(streamMessage.status),
+        };
       })
       .filter((uiMessage): uiMessage is UIMessage => uiMessage !== undefined);
     return messages;
@@ -786,11 +789,7 @@ export function useThread(
     { stream: options?.stream, skipStreamIds: options?.skipStreamIds },
   );
 
-  const basicResult = useMessages(
-    messagesQuery as MessagesQuery,
-    threadQuery,
-    options?.stream ? "skip" : args,
-  );
+  const basicResult = useMessages(messagesQuery as MessagesQuery, threadQuery, options?.stream ? "skip" : args);
 
   const { messages, isLoading: messagesLoading, thread } = options?.stream ? streamingResult : basicResult;
   const { status, isRunning, isComplete, isFailed, isStopped } = useThreadStatus(threadQuery, args);
