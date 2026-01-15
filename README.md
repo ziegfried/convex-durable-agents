@@ -84,7 +84,14 @@ export const {
   stopThread,
   addToolResult,
   addToolError,
-} = defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler);
+} = defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
+  // Optional: Add authorization to protect thread access
+  authorizationCallback: async (ctx, threadId) => {
+    // Example: verify the user owns this thread
+    // const identity = await ctx.auth.getUserIdentity();
+    // if (!identity) throw new Error("Unauthorized");
+  },
+});
 ```
 
 #### Using Internal API
@@ -196,7 +203,7 @@ function ChatView({ threadId }: { threadId: string }) {
 
 ### Client API
 
-#### `defineAgentApi(component, streamHandler)`
+#### `defineAgentApi(component, streamHandler, options?)`
 
 Creates the full agent API with **public** functions that can be called directly from clients:
 
@@ -212,19 +219,42 @@ Creates the full agent API with **public** functions that can be called directly
 - `addToolResult({ toolCallId, result })` - Add result for async tool
 - `addToolError({ toolCallId, error })` - Add error for async tool
 
-#### `defineInternalAgentApi(component, streamHandler)`
-
-Creates the same agent API as `defineAgentApi`, but with **internal** functions that can only be called from other Convex functions (queries, mutations, actions). Use this when you want to add authentication, authorization, or other business logic before calling agent functions.
+**Options:**
 
 ```ts
-import { defineInternalAgentApi } from "convex-durable-agents";
-
-export const {
-  createThread,
-  sendMessage,
-  // ... all the same functions as defineAgentApi
-} = defineInternalAgentApi(components.durableAgents, internal.chat.chatAgentHandler);
+type AgentApiOptions = {
+  authorizationCallback?: (
+    ctx: QueryCtx | MutationCtx | ActionCtx,
+    threadId: string,
+  ) => Promise<void> | void;
+};
 ```
+
+The `authorizationCallback` is called before any operation that accesses an existing thread. Use it to verify the user has permission to access the thread. Throw an error to deny access.
+
+**Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`, `listMessagesWithStreams`, `deleteThread`
+
+**Example with ownership check:**
+
+```ts
+defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
+  authorizationCallback: async (ctx, threadId) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    // Query your threads table to verify ownership
+    const thread = await ctx.runQuery(api.threads.getOwner, { threadId });
+    if (thread?.userId !== identity.subject) {
+      throw new Error("Access denied");
+    }
+  },
+});
+```
+
+#### `defineInternalAgentApi(component, streamHandler, options?)`
+
+Same as `defineAgentApi` but creates internal functions that can only be called from other Convex functions. Use this when you want to add authentication, authorization, or other business logic before calling agent functions.
+
 
 #### `streamHandlerAction(component, options)`
 

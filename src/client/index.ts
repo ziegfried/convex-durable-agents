@@ -656,13 +656,22 @@ export type AgentApi<V extends FunctionVisibility = "public"> = {
   addToolError: RegisteredMutation<V, { toolCallId: string; error: string }, null>;
 };
 
+export type AgentApiOptions = {
+  authorizationCallback?: (
+    ctx: QueryCtx | MutationCtx | ActionCtx,
+    threadId: string,
+  ) => Promise<void> | void;
+};
+
 function createAgentApi(
   component: ComponentApi,
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
   action: typeof actionGeneric | typeof internalActionGeneric,
   query: typeof queryGeneric | typeof internalQueryGeneric,
   mutation: typeof mutationGeneric | typeof internalMutationGeneric,
+  options?: AgentApiOptions,
 ) {
+  const authorize = options?.authorizationCallback;
 
   return {
     createThread: action({
@@ -702,6 +711,7 @@ function createAgentApi(
       },
       returns: v.null(),
       handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
         await checkThreadIsIdle(component, ctx, args.threadId as Id<"threads">);
         await ctx.runMutation(component.messages.add, {
           threadId: args.threadId,
@@ -726,6 +736,7 @@ function createAgentApi(
       },
       returns: v.null(),
       handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
         const threadId = args.threadId as Id<"threads">;
         await checkThreadIsIdle(component, ctx, threadId);
 
@@ -754,6 +765,7 @@ function createAgentApi(
       },
       returns: v.null(),
       handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
         await ctx.runMutation(component.threads.setStopSignal, {
           threadId: args.threadId as Id<"threads">,
           stopSignal: true,
@@ -767,6 +779,7 @@ function createAgentApi(
       },
       returns: v.union(vClientThreadDoc, v.null()),
       handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
         return ctx.runQuery(component.threads.get, { threadId: args.threadId as Id<"threads"> });
       },
     }),
@@ -775,6 +788,7 @@ function createAgentApi(
         threadId: v.string(),
       },
       handler: async (ctx, args): Promise<MessageDoc[]> => {
+        if (authorize) await authorize(ctx, args.threadId);
         return ctx.runQuery(component.messages.list, { threadId: args.threadId as Id<"threads"> });
       },
     }),
@@ -800,6 +814,7 @@ function createAgentApi(
           | { kind: "list"; messages: Array<{ streamId: string; status: "streaming" | "finished" | "aborted"; format?: "UIMessageChunk" | "TextStreamPart"; order: number; threadId: string }> }
           | { kind: "deltas"; deltas: Array<{ streamId: string; start: number; end: number; parts: Array<unknown> }> };
       }> => {
+        if (authorize) await authorize(ctx, args.threadId);
         const messages = await ctx.runQuery(component.messages.list, { threadId: args.threadId });
 
         if (!args.streamArgs) {
@@ -852,6 +867,7 @@ function createAgentApi(
       },
       returns: v.null(),
       handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
         await ctx.runMutation(component.threads.remove, { threadId: args.threadId });
         return null;
       },
@@ -893,6 +909,7 @@ function createAgentApi(
 export function defineAgentApi(
   component: ComponentApi,
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
+  options?: AgentApiOptions,
 ): AgentApi<"public"> {
   return createAgentApi(
     component,
@@ -900,6 +917,7 @@ export function defineAgentApi(
     actionGeneric,
     queryGeneric,
     mutationGeneric,
+    options,
   ) as AgentApi<"public">;
 }
 
@@ -909,6 +927,7 @@ export function defineAgentApi(
 export function defineInternalAgentApi(
   component: ComponentApi,
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
+  options?: AgentApiOptions,
 ): AgentApi<"internal"> {
   return createAgentApi(
     component,
@@ -916,5 +935,6 @@ export function defineInternalAgentApi(
     internalActionGeneric,
     internalQueryGeneric,
     internalMutationGeneric,
+    options,
   ) as AgentApi<"internal">;
 }
