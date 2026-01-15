@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { components, internal } from "./_generated/api.js";
-import {
-  createActionTool,
-  createAsyncTool,
-  defineAgentApi,
-  streamHandlerAction,
-} from "convex-durable-agents";
+import { createActionTool, createAsyncTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
+import { Workpool } from "@convex-dev/workpool";
+import { createWorkpoolBridge } from "convex-durable-agents";
+
+const pool = new Workpool(components.agentWorkpool, {
+  maxParallelism: 5,
+});
+
+export const { enqueueWorkpoolAction } = createWorkpoolBridge(pool);
 
 // Note: In a real app, you would configure your AI model here.
 // This example uses a placeholder - you'll need to set up your own model.
@@ -23,7 +26,7 @@ import {
  * This is an internal action that gets scheduled by the component.
  */
 export const chatAgentHandler = streamHandlerAction(components.durable_agent, {
-  model: 'anthropic/claude-sonnet-4.5',
+  model: "anthropic/claude-sonnet-4.5",
   system: `You are a helpful, friendly AI assistant.
     You can help users with various tasks and answer their questions.
     Be concise but thorough in your responses.
@@ -67,4 +70,6 @@ export const {
   stopThread,
   addToolError,
   addToolResult,
-} = defineAgentApi(components.durable_agent, internal.chat.chatAgentHandler);
+} = defineAgentApi(components.durable_agent, internal.chat.chatAgentHandler, {
+  workpoolEnqueueAction: internal.chat.enqueueWorkpoolAction,
+});

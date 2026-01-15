@@ -16,11 +16,11 @@ export const getWeather = internalAction({
     // In a real implementation, this would call a weather API
     // For demo purposes, return mock data based on location
     const weatherData: Record<string, { weather: string }> = {
-      "London": { weather: "rainy" },
+      London: { weather: "rainy" },
       "New York": { weather: "cloudy" },
       "San Francisco": { weather: "foggy" },
-      "Tokyo": { weather: "clear" },
-      "Vienna": { weather: "clear" },
+      Tokyo: { weather: "clear" },
+      Vienna: { weather: "clear" },
     };
 
     return weatherData[args.location] ?? { weather: "unknown" };
@@ -46,7 +46,7 @@ export const invokeGetTemperature = internalAction({
     // - Start a long-running job
     // - Wait for webhook to be called
     // - Send a notification and wait for human input
-    
+
     // For demo, we schedule the result to be added after a delay
     await ctx.scheduler.runAfter(2000, internal.tools.weather.addTemperatureResult, {
       location: args.location,
@@ -67,11 +67,11 @@ export const addTemperatureResult = internalAction({
     console.log(`Adding temperature result for: ${args.location}`);
 
     const temperatures: Record<string, number> = {
-      "London": 55,
+      London: 55,
       "New York": 65,
       "San Francisco": 72,
-      "Tokyo": 78,
-      "Vienna": 23,
+      Tokyo: 78,
+      Vienna: 23,
     };
 
     const temp = temperatures[args.location];

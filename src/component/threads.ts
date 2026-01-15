@@ -11,6 +11,8 @@ export type ThreadDoc = {
   stopSignal: boolean;
   streamId: string | null | undefined;
   streamFnHandle: string;
+  workpoolEnqueueAction?: string;
+  toolExecutionWorkpoolEnqueueAction?: string;
 };
 
 function publicThread(thread: Doc<"threads">): ThreadDoc {
@@ -21,6 +23,8 @@ function publicThread(thread: Doc<"threads">): ThreadDoc {
     stopSignal: thread.stopSignal,
     streamId: thread.streamId,
     streamFnHandle: thread.streamFnHandle,
+    workpoolEnqueueAction: thread.workpoolEnqueueAction,
+    toolExecutionWorkpoolEnqueueAction: thread.toolExecutionWorkpoolEnqueueAction,
   };
 }
 
@@ -32,6 +36,8 @@ export const vThreadDoc = v.object({
   stopSignal: v.boolean(),
   streamId: v.optional(v.union(v.string(), v.null())),
   streamFnHandle: v.string(),
+  workpoolEnqueueAction: v.optional(v.string()),
+  toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
 });
 
 export const vThreadDocWithStreamFnHandle = v.object({
@@ -41,11 +47,15 @@ export const vThreadDocWithStreamFnHandle = v.object({
   stopSignal: v.boolean(),
   streamId: v.optional(v.union(v.string(), v.null())),
   streamFnHandle: v.optional(v.union(v.string(), v.null())),
+  workpoolEnqueueAction: v.optional(v.string()),
+  toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
 });
 
 export const create = mutation({
   args: {
     streamFnHandle: v.string(),
+    workpoolEnqueueAction: v.optional(v.string()),
+    toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
   },
   returns: vThreadDoc,
   handler: async (ctx, args) => {
@@ -53,6 +63,8 @@ export const create = mutation({
       status: "streaming",
       stopSignal: false,
       streamFnHandle: args.streamFnHandle,
+      workpoolEnqueueAction: args.workpoolEnqueueAction,
+      toolExecutionWorkpoolEnqueueAction: args.toolExecutionWorkpoolEnqueueAction,
     });
     const thread = await ctx.db.get(threadId);
     return publicThread(thread!);
@@ -95,7 +107,10 @@ export const resume = mutation({
         .order("desc")
         .first();
       if (lastMessage?.message.role === "user") {
-        await ctx.db.patch(args.threadId, { status: "streaming", stopSignal: false });
+        await ctx.db.patch(args.threadId, {
+          status: "streaming",
+          stopSignal: false,
+        });
       } else {
         console.warn(`Cannot resume thread status=${thread.status} without new user message`);
         return null;
@@ -122,7 +137,10 @@ export const setStatus = mutation({
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
-    await ctx.db.patch(args.threadId, { status: args.status, streamId: args.streamId });
+    await ctx.db.patch(args.threadId, {
+      status: args.status,
+      streamId: args.streamId,
+    });
     return null;
   },
 });

@@ -54,9 +54,7 @@ function StatusBadge({ status }: { status: string }) {
         border: `1px solid ${config.color}40`,
       }}
     >
-      {(status === "streaming" || status === "awaiting_tool_results") && (
-        <span className="loading-dot" />
-      )}
+      {(status === "streaming" || status === "awaiting_tool_results") && <span className="loading-dot" />}
       {config.label}
     </span>
   );
@@ -78,7 +76,9 @@ function ChatMessage({ message }: { message: UIMessage }) {
 
   // Extract tool invocations
   const toolInvocations = message.parts.filter(
-    (part): part is {
+    (
+      part,
+    ): part is {
       type: "tool-invocation";
       toolCallId: string;
       toolName: string;
@@ -190,6 +190,7 @@ function ThreadSidebar({
 }) {
   return (
     <div
+      data-testid="thread-sidebar"
       style={{
         width: "250px",
         borderRight: "1px solid #e5e7eb",
@@ -217,9 +218,7 @@ function ThreadSidebar({
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         {threads?.length === 0 && (
-          <div style={{ color: "#9ca3af", textAlign: "center", padding: "1rem" }}>
-            No conversations yet
-          </div>
+          <div style={{ color: "#9ca3af", textAlign: "center", padding: "1rem" }}>No conversations yet</div>
         )}
 
         {threads?.map((thread) => (
@@ -231,6 +230,7 @@ function ThreadSidebar({
               borderRadius: "0.5rem",
               cursor: "pointer",
               backgroundColor: currentThreadId === thread._id ? "#e5e7eb" : "transparent",
+              color: currentThreadId === thread._id ? "#000" : "inherit",
               marginBottom: "0.25rem",
               display: "flex",
               justifyContent: "space-between",
@@ -238,9 +238,7 @@ function ThreadSidebar({
             }}
           >
             <div>
-              <div style={{ fontSize: "0.875rem", fontWeight: 500 }}>
-                Conversation
-              </div>
+              <div style={{ fontSize: "0.875rem", fontWeight: 500 }}>Conversation</div>
               <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
                 {new Date(thread._creationTime).toLocaleDateString()}
               </div>
@@ -326,7 +324,7 @@ function ChatView({ threadId }: { threadId: string }) {
   };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+    <div data-testid="chat-view" style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div
         style={{
@@ -375,16 +373,12 @@ function ChatView({ threadId }: { threadId: string }) {
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
-        {isLoading && (
-          <div style={{ textAlign: "center", color: "#9ca3af" }}>Loading...</div>
-        )}
+        {isLoading && <div style={{ textAlign: "center", color: "#9ca3af" }}>Loading...</div>}
 
         {!isLoading && messages.length === 0 && (
           <div style={{ textAlign: "center", color: "#9ca3af", padding: "2rem" }}>
             <p>No messages yet. Start the conversation!</p>
-            <p style={{ fontSize: "0.875rem" }}>
-              Try asking: "What's the weather in San Francisco?"
-            </p>
+            <p style={{ fontSize: "0.875rem" }}>Try asking: "What's the weather in San Francisco?"</p>
           </div>
         )}
 
@@ -500,12 +494,14 @@ function NewChatScreen({ onThreadCreated }: { onThreadCreated: (threadId: string
     >
       <h1 style={{ marginBottom: "1rem" }}>🤖 Durable Agents Demo</h1>
       <p style={{ color: "#6b7280", marginBottom: "2rem", textAlign: "center", maxWidth: "400px" }}>
-        This example demonstrates the Convex Durable Agents component with tool execution,
-        streaming responses, and crash recovery.
+        This example demonstrates the Convex Durable Agents component with tool execution, streaming responses, and
+        crash recovery.
       </p>
 
       {/* Suggestions */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1.5rem", justifyContent: "center" }}>
+      <div
+        style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "1.5rem", justifyContent: "center" }}
+      >
         {suggestions.map((suggestion) => (
           <button
             key={suggestion}
@@ -589,8 +585,8 @@ function WelcomeScreen({ onNewThread }: { onNewThread: () => void }) {
     >
       <h1 style={{ marginBottom: "1rem" }}>🤖 Durable Agents Demo</h1>
       <p style={{ color: "#6b7280", marginBottom: "2rem", textAlign: "center", maxWidth: "400px" }}>
-        This example demonstrates the Convex Durable Agents component with tool execution,
-        streaming responses, and crash recovery.
+        This example demonstrates the Convex Durable Agents component with tool execution, streaming responses, and
+        crash recovery.
       </p>
       <button
         onClick={onNewThread}
@@ -657,7 +653,7 @@ function App() {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
+    <div style={{ display: "flex", height: "100vh", width: "100vw" }}>
       <ThreadSidebar
         threads={threads}
         currentThreadId={currentThreadId}

@@ -317,7 +317,10 @@ export const timeoutStream = internalMutation({
  * Delete a stream and its deltas asynchronously
  */
 export const deleteStreamAsync = mutation({
-  args: { streamId: v.id("streaming_messages"), cursor: v.optional(v.string()) },
+  args: {
+    streamId: v.id("streaming_messages"),
+    cursor: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const deltas = await ctx.db

@@ -20,11 +20,7 @@ export default [
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: [
-          "./tsconfig.json",
-          "./example/tsconfig.json",
-          "./example/convex/tsconfig.json",
-        ],
+        project: ["./tsconfig.json", "./example/tsconfig.json", "./example/convex/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -72,10 +68,7 @@ export default [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true },
-      ],
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-explicit-any": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
