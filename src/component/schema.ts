@@ -50,6 +50,9 @@ const schema = defineSchema({
     stopSignal: v.boolean(),
     streamFnHandle: v.string(),
     streamId: v.optional(v.union(v.string(), v.null())),
+    // Optional workpool handles for scheduling actions
+    workpoolEnqueueAction: v.optional(v.string()),
+    toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
   }),
 
   // AI SDK compatible message storage

@@ -394,6 +394,10 @@ type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" | "messa
   /** Optional: Save streaming deltas to the database for real-time client updates */
   saveStreamDeltas?: boolean | StreamingOptions;
   transformMessages?: (messages: ModelMessage[]) => ModelMessage[];
+  /** Optional: Function to enqueue actions via workpool (used for both stream handler and tools unless overridden) */
+  workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  /** Optional: Override workpool for tool execution only */
+  toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
 };
 
 export function streamHandlerAction(
@@ -657,11 +661,33 @@ export type AgentApi<V extends FunctionVisibility = "public"> = {
 };
 
 export type AgentApiOptions = {
+  /** Optional authorization callback for thread access control */
   authorizationCallback?: (
     ctx: QueryCtx | MutationCtx | ActionCtx,
     threadId: string,
   ) => Promise<void> | void;
+  /** Optional: Function to enqueue actions via workpool (used for both stream handler and tools unless overridden) */
+  workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  /** Optional: Override workpool for tool execution only */
+  toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
 };
+
+async function serializeWorkpoolOptions(options?: AgentApiOptions): Promise<{
+  workpoolEnqueueAction?: string;
+  toolExecutionWorkpoolEnqueueAction?: string;
+}> {
+  const result: { workpoolEnqueueAction?: string; toolExecutionWorkpoolEnqueueAction?: string } = {};
+  if (options?.workpoolEnqueueAction) {
+    const handle = await createFunctionHandle(options.workpoolEnqueueAction);
+    result.workpoolEnqueueAction = handle.toString();
+  }
+  if (options?.toolExecutionWorkpoolEnqueueAction) {
+    const handle = await createFunctionHandle(options.toolExecutionWorkpoolEnqueueAction);
+    result.toolExecutionWorkpoolEnqueueAction = handle.toString();
+  }
+  return result;
+}
+
 
 function createAgentApi(
   component: ComponentApi,
@@ -683,8 +709,12 @@ function createAgentApi(
         // Create a function handle that can be scheduled from within the component
         const handle = await createFunctionHandle(ref);
 
+        // Serialize workpool options
+        const serializedWorkpool = await serializeWorkpoolOptions(options);
+
         const thread = await ctx.runMutation(component.threads.create, {
           streamFnHandle: handle,
+          ...serializedWorkpool,
         });
 
         if (args.prompt) {
@@ -937,4 +967,65 @@ export function defineInternalAgentApi(
     internalMutationGeneric,
     options,
   ) as AgentApi<"internal">;
+}
+
+// ============================================================================
+// Workpool Bridge Helper
+// ============================================================================
+
+/**
+ * Type for a Workpool instance that has an enqueueAction method.
+ * This is compatible with @convex-dev/workpool's Workpool class.
+ */
+type WorkpoolLike = {
+  enqueueAction: <Args extends Record<string, unknown>>(
+    ctx: { runMutation: GenericMutationCtx<GenericDataModel>["runMutation"] },
+    fn: FunctionReference<"action", FunctionVisibility, Args, unknown>,
+    fnArgs: Args,
+    options?: unknown,
+  ) => Promise<unknown>;
+};
+
+/**
+ * Creates a workpool bridge mutation that can be used with defineAgentApi.
+ *
+ * This helper creates an internal mutation that forwards action execution to your workpool,
+ * allowing the agent to use workpool's parallelism controls and retry mechanisms.
+ *
+ * @example
+ * ```typescript
+ * // convex/workpool.ts
+ * import { Workpool } from "@convex-dev/workpool";
+ * import { components } from "./_generated/api";
+ * import { createWorkpoolBridge } from "convex-durable-agents";
+ *
+ * const pool = new Workpool(components.workpool, { maxParallelism: 5 });
+ * export const { enqueueWorkpoolAction } = createWorkpoolBridge(pool);
+ *
+ * // convex/chat.ts
+ * export const { createThread, sendMessage, ... } = defineAgentApi(
+ *   components.durable_agent,
+ *   internal.chat.chatAgentHandler,
+ *   { workpoolEnqueueAction: internal.workpool.enqueueWorkpoolAction }
+ * );
+ * ```
+ */
+export function createWorkpoolBridge(workpool: WorkpoolLike) {
+  return {
+    enqueueWorkpoolAction: internalMutationGeneric({
+      args: {
+        action: v.string(),
+        args: v.any(),
+      },
+      returns: v.null(),
+      handler: async (ctx, { action, args }) => {
+        await workpool.enqueueAction(
+          ctx,
+          action as unknown as FunctionReference<"action", "internal", Record<string, unknown>, unknown>,
+          args as Record<string, unknown>,
+        );
+        return null;
+      },
+    }),
+  };
 }
