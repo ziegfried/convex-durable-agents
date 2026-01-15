@@ -1006,17 +1006,13 @@ export function defineInternalAgentApi(
  * Type for a Workpool instance that has an enqueueAction method.
  * This is compatible with @convex-dev/workpool's Workpool class.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 type WorkpoolLike = {
   enqueueAction: (
     ctx: GenericMutationCtx<GenericDataModel>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fn: FunctionReference<"action", FunctionVisibility, any, any>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fnArgs: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     options?: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) => Promise<any>;
 };
 

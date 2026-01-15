@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit && tsc -p example && tsc -p example/convex",
     "lint": "eslint .",
     "format": "prettier --write .",
+    "fix": "bun lint --fix && bun format",
     "all": "run-p -r 'dev:*' 'test:watch'",
     "test": "vitest run --typecheck",
     "test:watch": "vitest --typecheck --clearScreen false",

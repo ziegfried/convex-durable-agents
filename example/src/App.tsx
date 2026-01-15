@@ -190,6 +190,7 @@ function ThreadSidebar({
 }) {
   return (
     <div
+      data-testid="thread-sidebar"
       style={{
         width: "250px",
         borderRight: "1px solid #e5e7eb",
@@ -229,6 +230,7 @@ function ThreadSidebar({
               borderRadius: "0.5rem",
               cursor: "pointer",
               backgroundColor: currentThreadId === thread._id ? "#e5e7eb" : "transparent",
+              color: currentThreadId === thread._id ? "#000" : "inherit",
               marginBottom: "0.25rem",
               display: "flex",
               justifyContent: "space-between",
@@ -322,7 +324,7 @@ function ChatView({ threadId }: { threadId: string }) {
   };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+    <div data-testid="chat-view" style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div
         style={{
@@ -651,7 +653,7 @@ function App() {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
+    <div style={{ display: "flex", height: "100vh", width: "100vw" }}>
       <ThreadSidebar
         threads={threads}
         currentThreadId={currentThreadId}

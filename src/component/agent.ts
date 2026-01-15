@@ -13,7 +13,7 @@ type MutationCtx = GenericMutationCtx<GenericDataModel>;
 async function enqueueAction(
   ctx: MutationCtx,
   workpoolHandle: string | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   action: FunctionHandle<"action"> | FunctionReference<"action", any, any, any>,
   args: Record<string, unknown>,
 ) {
