@@ -59,7 +59,7 @@ import { openai } from "@ai-sdk/openai";
 
 // Define the stream handler with your model and tools
 export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
-  model: openai("gpt-5.2"),
+  model: 'anthropic/claude-haiku-4.5',
   system: "You are a helpful AI assistant.",
   tools: {
     get_weather: createActionTool({
@@ -71,7 +71,7 @@ export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
   saveStreamDeltas: true, // Enable real-time streaming
 });
 
-// Export the agent API
+// Export the agent API (public - callable from clients)
 export const {
   createThread,
   sendMessage,
@@ -85,6 +85,50 @@ export const {
   addToolResult,
   addToolError,
 } = defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler);
+```
+
+#### Using Internal API
+
+If you want to restrict the agent API to only be callable from other Convex functions (not directly from clients), use `defineInternalAgentApi` instead:
+
+```ts
+// convex/chat.ts
+import { defineInternalAgentApi } from "convex-durable-agents";
+
+// Export internal agent API (only callable from other Convex functions)
+export const {
+  createThread,
+  sendMessage,
+  getThread,
+  // ... other functions
+} = defineInternalAgentApi(components.durableAgents, internal.chat.chatAgentHandler);
+```
+
+This is useful when you want to:
+- Add authentication/authorization checks before calling agent functions
+- Wrap agent functions with additional business logic
+- Prevent direct client access to the agent API
+- Run agents in the background
+
+You can then create your own public functions that call the internal API:
+
+```ts
+// convex/myChat.ts
+import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
+
+// Public wrapper with auth check
+export const sendMessage = mutation({
+  args: { threadId: v.string(), prompt: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    
+    // Call the internal agent API
+    return ctx.runMutation(internal.chat.sendMessage, args);
+  },
+});
 ```
 
 ### 3. Create Tool Handlers
@@ -154,7 +198,7 @@ function ChatView({ threadId }: { threadId: string }) {
 
 #### `defineAgentApi(component, streamHandler)`
 
-Creates the full agent API with the following functions:
+Creates the full agent API with **public** functions that can be called directly from clients:
 
 - `createThread({ prompt? })` - Create a new conversation thread
 - `sendMessage({ threadId, prompt })` - Send a message to a thread
@@ -167,6 +211,20 @@ Creates the full agent API with the following functions:
 - `deleteThread({ threadId })` - Delete a thread
 - `addToolResult({ toolCallId, result })` - Add result for async tool
 - `addToolError({ toolCallId, error })` - Add error for async tool
+
+#### `defineInternalAgentApi(component, streamHandler)`
+
+Creates the same agent API as `defineAgentApi`, but with **internal** functions that can only be called from other Convex functions (queries, mutations, actions). Use this when you want to add authentication, authorization, or other business logic before calling agent functions.
+
+```ts
+import { defineInternalAgentApi } from "convex-durable-agents";
+
+export const {
+  createThread,
+  sendMessage,
+  // ... all the same functions as defineAgentApi
+} = defineInternalAgentApi(components.durableAgents, internal.chat.chatAgentHandler);
+```
 
 #### `streamHandlerAction(component, options)`
 
