@@ -202,29 +202,38 @@ type MessagesQuery = FunctionReference<"query", "public", { threadId: string }, 
 /**
  * Combine consecutive assistant messages by merging tool results.
  * This merges tool-call parts (input-available) with their corresponding tool-result parts (output-available)
- * by matching toolCallId. Messages with the same order are merged.
+ * by matching toolCallId.
  */
 function combineUIMessages(messages: UIMessage[]): UIMessage[] {
   return messages.reduce((acc, message) => {
     if (!acc.length) return [message];
 
     const previous = acc[acc.length - 1];
-    const prevOrder = previous.metadata?.order;
-    const currOrder = message.metadata?.order;
 
-    // Merge messages with the same order (typically tool results into assistant messages)
-    if (prevOrder !== undefined && currOrder !== undefined && prevOrder === currOrder) {
-      // Merge parts, matching tool results to tool calls by toolCallId
+    // Check if current message has tool results that match tool calls in previous message
+    const prevToolCallIds = new Set(
+      previous.parts
+        .filter(
+          (p): p is DynamicToolUIPart => p.type === "dynamic-tool" && p.state === "input-available",
+        )
+        .map((p) => p.toolCallId),
+    );
+
+    const currToolResults = message.parts.filter(
+      (p): p is DynamicToolUIPart =>
+        p.type === "dynamic-tool" && p.state === "output-available" && prevToolCallIds.has(p.toolCallId),
+    );
+
+    // If there are matching tool results, merge the messages
+    if (currToolResults.length > 0) {
       const newParts = [...previous.parts] as Array<TextUIPart | DynamicToolUIPart>;
+
       for (const part of message.parts) {
         if (part.type === "dynamic-tool" && part.state === "output-available") {
-          const toolCallId = part.toolCallId;
-          // Find existing tool-call part with input-available state
           const existingIdx = newParts.findIndex(
-            (p) => p.type === "dynamic-tool" && p.toolCallId === toolCallId && p.state === "input-available",
+            (p) => p.type === "dynamic-tool" && p.toolCallId === part.toolCallId && p.state === "input-available",
           );
           if (existingIdx !== -1) {
-            // Update to output-available state with result
             const existing = newParts[existingIdx] as DynamicToolUIPart;
             newParts[existingIdx] = {
               type: "dynamic-tool",
@@ -237,7 +246,6 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
             continue;
           }
         }
-        // If no matching tool-call found, add the part anyway
         newParts.push(part as TextUIPart | DynamicToolUIPart);
       }
 
@@ -254,7 +262,6 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
       return acc;
     }
 
-    // Otherwise, add as a new message
     acc.push(message);
     return acc;
   }, [] as UIMessage[]);
