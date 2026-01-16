@@ -396,7 +396,7 @@ async function serializeFunctionRef(ref: FunctionReference<"action", "internal" 
 // Stream Handler Action
 // ============================================================================
 
-type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" | "messages" | "prompt"> & {
+export type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" | "messages" | "prompt"> & {
   tools: Record<string, DurableTool<unknown, unknown>>;
   /** Optional: Save streaming deltas to the database for real-time client updates */
   saveStreamDeltas?: boolean | StreamingOptions;
@@ -407,9 +407,14 @@ type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" | "messa
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
 };
 
+export type StreamHandlerArgsFactory = (
+  ctx: ActionCtx,
+  threadId: string,
+) => StreamHandlerArgs | Promise<StreamHandlerArgs>;
+
 export function streamHandlerAction(
   component: ComponentApi,
-  { tools, saveStreamDeltas, transformMessages = (messages) => messages, ...streamTextArgs }: StreamHandlerArgs,
+  argsOrFactory: StreamHandlerArgs | StreamHandlerArgsFactory,
 ) {
   return internalActionGeneric({
     args: {
@@ -425,6 +430,13 @@ export function streamHandlerAction(
       if (thread?.streamId !== args.streamId) {
         throw new Error(`Thread ${args.threadId} streamId mismatch: ${thread?.streamId} !== ${args.streamId}`);
       }
+
+      // Resolve the args - either directly or by calling the factory function
+      const resolvedArgs =
+        typeof argsOrFactory === "function"
+          ? await argsOrFactory(ctx as ActionCtx, args.threadId)
+          : argsOrFactory;
+      const { tools, saveStreamDeltas, transformMessages = (messages) => messages, ...streamTextArgs } = resolvedArgs;
 
       // Get the current message order for streaming
       const messages = await ctx.runQuery(component.messages.list, {
