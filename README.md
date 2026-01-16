@@ -173,16 +173,7 @@ import { useAgentChat, getMessageKey } from "convex-durable-agents/react";
 import { api } from "../convex/_generated/api";
 
 function ChatView({ threadId }: { threadId: string }) {
-  const {
-    messages,
-    status,
-    isRunning,
-    isFailed,
-    isStopped,
-    sendMessage,
-    stop,
-    resume,
-  } = useAgentChat({
+  const { messages, status, isRunning, sendMessage, stop } = useAgentChat({
     listMessages: api.chat.listMessagesWithStreams,
     getThread: api.chat.getThread,
     sendMessage: api.chat.sendMessage,
@@ -195,12 +186,11 @@ function ChatView({ threadId }: { threadId: string }) {
     <div>
       {messages.map((msg) => (
         <div key={getMessageKey(msg)}>
-          <strong>{msg.role}:</strong> {msg.parts.map((p) => p.type === "text" ? p.text : null)}
+          <strong>{msg.role}:</strong> {msg.parts.map((p) => (p.type === "text" ? p.text : null))}
         </div>
       ))}
 
       {isRunning && <button onClick={() => stop()}>Stop</button>}
-      {(isFailed || isStopped) && <button onClick={() => resume()}>Resume</button>}
 
       <input
         onKeyPress={(e) => {
@@ -324,17 +314,17 @@ All-in-one hook for chat functionality that combines thread state with mutations
 
 ```ts
 const {
-  messages,    // UIMessage[]
-  thread,      // ThreadDoc | null
-  status,      // ThreadStatus
-  isLoading,   // boolean
-  isRunning,   // boolean
-  isComplete,  // boolean
-  isFailed,    // boolean
-  isStopped,   // boolean
+  messages, // UIMessage[]
+  thread, // ThreadDoc | null
+  status, // ThreadStatus
+  isLoading, // boolean
+  isRunning, // boolean
+  isComplete, // boolean
+  isFailed, // boolean
+  isStopped, // boolean
   sendMessage, // (prompt: string) => Promise<null>
-  stop,        // () => Promise<null>
-  resume,      // (prompt?: string) => Promise<null>
+  stop, // () => Promise<null>
+  resume, // (prompt?: string) => Promise<null>
 } = useAgentChat({
   listMessages: api.chat.listMessagesWithStreams,
   getThread: api.chat.getThread,
