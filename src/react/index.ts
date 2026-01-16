@@ -4,6 +4,7 @@
  * React hooks for the durable_agent component.
  */
 
+import type { UIMessage as AIUIMessage, TextUIPart, DynamicToolUIPart } from "ai";
 import { useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -32,17 +33,19 @@ export type MessageDoc = {
   };
 };
 
-// UI-friendly message format
-export type UIMessage = {
-  id: string;
+// Metadata type for custom fields in UIMessage
+export type ConvexUIMessageMetadata = {
   key: string;
   order: number;
-  role: "system" | "user" | "assistant" | "tool";
   status: ThreadStatus | "success";
-  text: string;
-  parts: Array<unknown>;
   _creationTime: number;
 };
+
+// UI-friendly message format using AI SDK's UIMessage with custom metadata
+export type UIMessage = AIUIMessage<ConvexUIMessageMetadata>;
+
+// Re-export AI SDK part types for consumers
+export type { TextUIPart, DynamicToolUIPart } from "ai";
 
 // Stream args for delta streaming
 export type StreamArgs =
@@ -197,39 +200,9 @@ export function useThreadStatus(
 type MessagesQuery = FunctionReference<"query", "public", { threadId: string }, MessageDoc[]>;
 
 /**
- * Extract text from message content
- */
-function extractText(content: string | Array<unknown>): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .filter((part): part is { type: "text"; text: string } => {
-        return typeof part === "object" && part !== null && (part as { type?: string }).type === "text";
-      })
-      .map((part) => part.text)
-      .join("");
-  }
-  return "";
-}
-
-/**
- * Extract text from parts array
- */
-function extractTextFromParts(parts: Array<unknown>): string {
-  return parts
-    .filter((part): part is { type: "text"; text: string } => {
-      return typeof part === "object" && part !== null && (part as { type?: string }).type === "text";
-    })
-    .map((part) => part.text)
-    .join("");
-}
-
-/**
- * Combine consecutive assistant/tool messages into a single message.
- * This merges tool-call parts with their corresponding tool-result parts by matching toolCallId.
- * Tool messages (role="tool") are merged into the preceding assistant message.
+ * Combine consecutive assistant messages by merging tool results.
+ * This merges tool-call parts (input-available) with their corresponding tool-result parts (output-available)
+ * by matching toolCallId.
  */
 function combineUIMessages(messages: UIMessage[]): UIMessage[] {
   return messages.reduce((acc, message) => {
@@ -237,56 +210,121 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
 
     const previous = acc[acc.length - 1];
 
-    // If current message is a tool message and previous is assistant, merge them
-    if (message.role === "tool" && previous.role === "assistant") {
-      // Merge parts, matching tool-results to tool-calls by toolCallId
-      const newParts = [...previous.parts];
+    // Check if current message has tool results that match tool calls in previous message
+    const prevToolCallIds = new Set(
+      previous.parts
+        .filter(
+          (p): p is DynamicToolUIPart => p.type === "dynamic-tool" && p.state === "input-available",
+        )
+        .map((p) => p.toolCallId),
+    );
+
+    const currToolResults = message.parts.filter(
+      (p): p is DynamicToolUIPart =>
+        p.type === "dynamic-tool" && p.state === "output-available" && prevToolCallIds.has(p.toolCallId),
+    );
+
+    // If there are matching tool results, merge the messages
+    if (currToolResults.length > 0) {
+      const newParts = [...previous.parts] as Array<TextUIPart | DynamicToolUIPart>;
+
       for (const part of message.parts) {
-        const toolCallId = (part as { toolCallId?: string }).toolCallId;
-        if (toolCallId && (part as { type?: string }).type === "tool-result") {
-          // Find and update existing tool-call part
+        if (part.type === "dynamic-tool" && part.state === "output-available") {
           const existingIdx = newParts.findIndex(
-            (p) =>
-              (p as { toolCallId?: string }).toolCallId === toolCallId && (p as { type?: string }).type === "tool-call",
+            (p) => p.type === "dynamic-tool" && p.toolCallId === part.toolCallId && p.state === "input-available",
           );
           if (existingIdx !== -1) {
-            // Merge result into tool-call, creating a combined tool part
-            const existingPart = newParts[existingIdx] as {
-              type: string;
-              toolCallId: string;
-              toolName: string;
-              input?: unknown;
-              args?: unknown;
-            };
+            const existing = newParts[existingIdx] as DynamicToolUIPart;
             newParts[existingIdx] = {
-              ...existingPart,
-              type: "tool-invocation",
-              // Keep args from the original tool-call (might be stored as 'input' or 'args')
-              args: existingPart.input ?? existingPart.args,
-              result: (part as { result?: unknown }).result,
-              state: "result",
-            };
+              type: "dynamic-tool",
+              toolName: existing.toolName,
+              toolCallId: existing.toolCallId,
+              state: "output-available",
+              input: existing.input,
+              output: part.output,
+            } as DynamicToolUIPart;
             continue;
           }
         }
-        // If no matching tool-call found, add the part anyway
-        newParts.push(part);
+        newParts.push(part as TextUIPart | DynamicToolUIPart);
       }
+
+      const newStatus = message.metadata?.status === "success" ? previous.metadata?.status : message.metadata?.status;
 
       acc[acc.length - 1] = {
         ...previous,
-        role: "assistant",
-        status: message.status === "success" ? previous.status : message.status,
         parts: newParts,
-        text: extractTextFromParts(newParts),
+        metadata: {
+          ...previous.metadata!,
+          status: newStatus ?? "success",
+        },
       };
       return acc;
     }
 
-    // Otherwise, add as a new message
     acc.push(message);
     return acc;
   }, [] as UIMessage[]);
+}
+
+/**
+ * Convert a content part to AI SDK UIMessagePart format
+ */
+function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
+  if (typeof part !== "object" || part === null) {
+    return { type: "text", text: String(part) };
+  }
+
+  const p = part as Record<string, unknown>;
+
+  if (p.type === "text") {
+    return { type: "text", text: String(p.text ?? "") };
+  }
+
+  if (p.type === "tool-call") {
+    return {
+      type: "dynamic-tool",
+      toolName: String(p.toolName ?? ""),
+      toolCallId: String(p.toolCallId ?? ""),
+      state: "input-available",
+      input: p.input ?? p.args,
+    };
+  }
+
+  if (p.type === "tool-result") {
+    return {
+      type: "dynamic-tool",
+      toolName: String(p.toolName ?? ""),
+      toolCallId: String(p.toolCallId ?? ""),
+      state: "output-available",
+      input: p.input ?? p.args ?? {},
+      output: p.result,
+    };
+  }
+
+  if (p.type === "tool-invocation") {
+    const state = p.state === "result" ? "output-available" : "input-available";
+    if (state === "output-available") {
+      return {
+        type: "dynamic-tool",
+        toolName: String(p.toolName ?? ""),
+        toolCallId: String(p.toolCallId ?? ""),
+        state: "output-available",
+        input: p.input ?? p.args ?? {},
+        output: p.result,
+      };
+    }
+    return {
+      type: "dynamic-tool",
+      toolName: String(p.toolName ?? ""),
+      toolCallId: String(p.toolCallId ?? ""),
+      state: "input-available",
+      input: p.input ?? p.args,
+    };
+  }
+
+  // Fallback: treat as text
+  return { type: "text", text: JSON.stringify(part) };
 }
 
 /**
@@ -294,34 +332,36 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
  */
 function toUIMessage(message: MessageDoc, threadStatus: ThreadStatus | undefined): UIMessage {
   const content = message.message.content;
-  const text = extractText(content);
 
-  // Build parts array
-  const parts: Array<unknown> = [];
+  // Build parts array with proper AI SDK types
+  const parts: Array<TextUIPart | DynamicToolUIPart> = [];
   if (typeof content === "string") {
     parts.push({ type: "text", text: content });
   } else if (Array.isArray(content)) {
     for (const part of content) {
-      parts.push(part);
+      parts.push(toUIMessagePart(part));
     }
   }
 
   // Determine message status
   let status: ThreadStatus | "success" = "success";
   if (message.message.role === "assistant" && threadStatus) {
-    // If this is the last assistant message and thread is still running, show streaming status
     status = threadStatus === "streaming" || threadStatus === "awaiting_tool_results" ? threadStatus : "success";
   }
 
+  // AI SDK UIMessage doesn't have 'tool' role - tool messages should be merged into assistant
+  const role = message.message.role === "tool" ? "assistant" : message.message.role;
+
   return {
     id: message._id,
-    key: `${message.threadId}-${message.order}`,
-    order: message.order,
-    role: message.message.role,
-    status,
-    text,
+    role,
     parts,
-    _creationTime: message._creationTime,
+    metadata: {
+      key: `${message.threadId}-${message.order}`,
+      order: message.order,
+      status,
+      _creationTime: message._creationTime,
+    },
   };
 }
 
@@ -349,7 +389,7 @@ export function useMessages(
     const uiMessages = rawMessages.map((msg) => toUIMessage(msg, threadStatus));
 
     // Sort by order
-    uiMessages.sort((a, b) => a.order - b.order);
+    uiMessages.sort((a, b) => (a.metadata?.order ?? 0) - (b.metadata?.order ?? 0));
 
     // Combine assistant/tool messages with the same order (merges tool-call with tool-result)
     const combinedMessages = combineUIMessages(uiMessages);
@@ -358,7 +398,13 @@ export function useMessages(
     if (threadStatus === "streaming" || threadStatus === "awaiting_tool_results") {
       for (let i = combinedMessages.length - 1; i >= 0; i--) {
         if (combinedMessages[i].role === "assistant") {
-          combinedMessages[i].status = threadStatus;
+          combinedMessages[i] = {
+            ...combinedMessages[i],
+            metadata: {
+              ...combinedMessages[i].metadata!,
+              status: threadStatus,
+            },
+          };
           break;
         }
       }
@@ -390,10 +436,14 @@ type StreamingMessagesQuery = FunctionReference<
 >;
 
 /**
- * Sort items by order
+ * Sort items by order (supports both top-level order and metadata.order)
  */
-function sorted<T extends { order: number }>(items: Array<T>): Array<T> {
-  return [...items].sort((a, b) => a.order - b.order);
+function sorted<T extends { order?: number; metadata?: { order: number } }>(items: Array<T>): Array<T> {
+  return [...items].sort((a, b) => {
+    const aOrder = a.order ?? a.metadata?.order ?? 0;
+    const bOrder = b.order ?? b.metadata?.order ?? 0;
+    return aOrder - bOrder;
+  });
 }
 
 /**
@@ -418,13 +468,14 @@ function statusFromStreamStatus(status: StreamMessage["status"]): ThreadStatus |
 function blankUIMessage(streamMessage: StreamMessage): UIMessage {
   return {
     id: `stream:${streamMessage.streamId}`,
-    key: `${streamMessage.threadId}-${streamMessage.order}`,
-    order: streamMessage.order,
-    status: statusFromStreamStatus(streamMessage.status),
-    text: "",
-    _creationTime: Date.now(),
     role: "assistant",
     parts: [],
+    metadata: {
+      key: `${streamMessage.threadId}-${streamMessage.order}`,
+      order: streamMessage.order,
+      status: statusFromStreamStatus(streamMessage.status),
+      _creationTime: Date.now(),
+    },
   };
 }
 
@@ -453,10 +504,10 @@ function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>):
 
   if (textParts.length > 0) {
     const text = textParts.map((p) => p.textDelta).join("");
+    const textUIPart: TextUIPart = { type: "text", text, state: "streaming" };
     return {
       ...uiMessage,
-      parts: [{ type: "text", text }],
-      text,
+      parts: [textUIPart],
     };
   }
   return uiMessage;
@@ -467,21 +518,28 @@ function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>):
  */
 function dedupeMessages(messages: Array<UIMessage>, streamMessages: Array<UIMessage>): Array<UIMessage> {
   const combined = sorted([...messages, ...streamMessages]);
-  return combined.reduce((msgs, msg) => {
-    const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-    if (!last) {
-      return [msg];
-    }
-    if (last.order !== msg.order) {
-      msgs.push(msg);
+  return combined.reduce(
+    (msgs, msg) => {
+      const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+      if (!last) {
+        return [msg];
+      }
+      const lastOrder = last.metadata?.order;
+      const msgOrder = msg.metadata?.order;
+      if (lastOrder !== msgOrder) {
+        msgs.push(msg);
+        return msgs;
+      }
+      // Same order - check if we should replace
+      const lastStatus = last.metadata?.status;
+      const msgStatus = msg.metadata?.status;
+      if ((lastStatus === "streaming" || lastStatus === "awaiting_tool_results") && msgStatus === "success") {
+        return [...msgs.slice(0, -1), msg];
+      }
       return msgs;
-    }
-    // Same order - check if we should replace
-    if ((last.status === "streaming" || last.status === "awaiting_tool_results") && msg.status === "success") {
-      return [...msgs.slice(0, -1), msg];
-    }
-    return msgs;
-  }, [] as Array<UIMessage>);
+    },
+    [] as Array<UIMessage>,
+  );
 }
 
 /**
@@ -646,19 +704,21 @@ export function useStreamingUIMessages(
     setMessageState(newMessageState);
   }, [messageState, streams]);
 
-  const result = useMemo(() => {
+  const result = useMemo((): UIMessage[] | undefined => {
     if (!streams) return undefined;
-    const messages = streams
-      .map(({ streamMessage }) => {
-        const uiMessage = messageState[streamMessage.streamId]?.uiMessage;
-        if (!uiMessage) return undefined;
-        // Update status from stream metadata (more up-to-date than accumulated state)
-        return {
-          ...uiMessage,
+    const messages: UIMessage[] = [];
+    for (const { streamMessage } of streams) {
+      const uiMessage = messageState[streamMessage.streamId]?.uiMessage;
+      if (!uiMessage) continue;
+      // Update status from stream metadata (more up-to-date than accumulated state)
+      messages.push({
+        ...uiMessage,
+        metadata: {
+          ...uiMessage.metadata!,
           status: statusFromStreamStatus(streamMessage.status),
-        };
-      })
-      .filter((uiMessage): uiMessage is UIMessage => uiMessage !== undefined);
+        },
+      });
+    }
     return messages;
   }, [messageState, streams]);
 
@@ -708,18 +768,18 @@ export function useMessagesWithStreaming(
     const uiMessages = rawMessages.map((msg) => toUIMessage(msg, threadStatus));
 
     // Sort by order
-    uiMessages.sort((a, b) => a.order - b.order);
+    uiMessages.sort((a, b) => (a.metadata?.order ?? 0) - (b.metadata?.order ?? 0));
 
     // Combine assistant/tool messages with the same order (merges tool-call with tool-result)
     const combinedMessages = combineUIMessages(uiMessages);
 
     // Filter out finished streaming messages only if there's a corresponding database message
-    const dbMessageOrders = new Set(combinedMessages.map((m) => m.order));
+    const dbMessageOrders = new Set(combinedMessages.map((m) => m.metadata?.order));
     const filteredStreamMessages = (streamMessages ?? []).filter((m) => {
       // Keep streaming messages that are still actively streaming
-      if (m.status === "streaming") return true;
+      if (m.metadata?.status === "streaming") return true;
       // Keep finished streaming messages only if no database message exists yet
-      return !dbMessageOrders.has(m.order);
+      return !dbMessageOrders.has(m.metadata?.order);
     });
 
     // Merge with streaming messages
@@ -729,7 +789,13 @@ export function useMessagesWithStreaming(
     if (threadStatus === "streaming" || threadStatus === "awaiting_tool_results") {
       for (let i = merged.length - 1; i >= 0; i--) {
         if (merged[i].role === "assistant") {
-          merged[i].status = threadStatus;
+          merged[i] = {
+            ...merged[i],
+            metadata: {
+              ...merged[i].metadata!,
+              status: threadStatus,
+            },
+          };
           break;
         }
       }
@@ -804,4 +870,46 @@ export function useThread(
     isFailed,
     isStopped,
   };
+}
+
+// ============================================================================
+// Helper Functions for UIMessage
+// ============================================================================
+
+/**
+ * Extract text content from a UIMessage's parts
+ */
+export function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is TextUIPart => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+/**
+ * Get the status of a message from its metadata
+ */
+export function getMessageStatus(message: UIMessage): ThreadStatus | "success" {
+  return message.metadata?.status ?? "success";
+}
+
+/**
+ * Get the key for React rendering from message metadata
+ */
+export function getMessageKey(message: UIMessage): string {
+  return message.metadata?.key ?? message.id;
+}
+
+/**
+ * Get the order of a message from its metadata
+ */
+export function getMessageOrder(message: UIMessage): number {
+  return message.metadata?.order ?? 0;
+}
+
+/**
+ * Get the creation time of a message from its metadata
+ */
+export function getMessageCreationTime(message: UIMessage): number {
+  return message.metadata?._creationTime ?? 0;
 }
