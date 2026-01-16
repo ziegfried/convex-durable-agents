@@ -169,32 +169,44 @@ export const getWeather = internalAction({
 Use the React hooks to build your chat interface:
 
 ```tsx
-import { useAction, useMutation } from "convex/react";
-import { useThread } from "convex-durable-agents/react";
+import { useAgentChat, getMessageKey } from "convex-durable-agents/react";
 import { api } from "../convex/_generated/api";
 
 function ChatView({ threadId }: { threadId: string }) {
-  const sendMessage = useMutation(api.chat.sendMessage);
-
-  const { messages, status, isRunning } = useThread(
-    api.chat.listMessagesWithStreams,
-    api.chat.getThread,
-    { threadId },
-    { stream: true },
-  );
+  const {
+    messages,
+    status,
+    isRunning,
+    isFailed,
+    isStopped,
+    sendMessage,
+    stop,
+    resume,
+  } = useAgentChat({
+    listMessages: api.chat.listMessagesWithStreams,
+    getThread: api.chat.getThread,
+    sendMessage: api.chat.sendMessage,
+    stopThread: api.chat.stopThread,
+    resumeThread: api.chat.resumeThread,
+    threadId,
+  });
 
   return (
     <div>
       {messages.map((msg) => (
-        <div key={msg.key}>
-          <strong>{msg.role}:</strong> {msg.text}
+        <div key={getMessageKey(msg)}>
+          <strong>{msg.role}:</strong> {msg.parts.map((p) => p.type === "text" ? p.text : null)}
         </div>
       ))}
+
+      {isRunning && <button onClick={() => stop()}>Stop</button>}
+      {(isFailed || isStopped) && <button onClick={() => resume()}>Resume</button>}
 
       <input
         onKeyPress={(e) => {
           if (e.key === "Enter" && !isRunning) {
-            sendMessage({ threadId, prompt: e.currentTarget.value });
+            sendMessage(e.currentTarget.value);
+            e.currentTarget.value = "";
           }
         }}
         disabled={isRunning}
@@ -306,9 +318,46 @@ createAsyncTool({
 
 ### React Hooks
 
+#### `useAgentChat(options)`
+
+All-in-one hook for chat functionality that combines thread state with mutations:
+
+```ts
+const {
+  messages,    // UIMessage[]
+  thread,      // ThreadDoc | null
+  status,      // ThreadStatus
+  isLoading,   // boolean
+  isRunning,   // boolean
+  isComplete,  // boolean
+  isFailed,    // boolean
+  isStopped,   // boolean
+  sendMessage, // (prompt: string) => Promise<null>
+  stop,        // () => Promise<null>
+  resume,      // (prompt?: string) => Promise<null>
+} = useAgentChat({
+  listMessages: api.chat.listMessagesWithStreams,
+  getThread: api.chat.getThread,
+  sendMessage: api.chat.sendMessage,
+  stopThread: api.chat.stopThread,
+  resumeThread: api.chat.resumeThread,
+  threadId,
+  stream: true, // optional, defaults to true
+});
+
+// Send a message (threadId is automatically included)
+await sendMessage("Hello!");
+
+// Stop the agent
+await stop();
+
+// Resume after stopping or failure
+await resume();
+```
+
 #### `useThread(messagesQuery, threadQuery, args, options?)`
 
-All-in-one hook for thread status and messages:
+Lower-level hook for thread status and messages (use `useAgentChat` for most cases):
 
 ```ts
 const {
@@ -443,9 +492,10 @@ defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
 │                      Your Application                        │
 ├─────────────────────────────────────────────────────────────┤
 │  defineAgentApi()          │  React Hooks                   │
-│  - createThread            │  - useThread                   │
-│  - sendMessage             │  - useMessages                 │
-│  - stopThread              │  - useSmoothText               │
+│  - createThread            │  - useAgentChat                │
+│  - sendMessage             │  - useThread                   │
+│  - stopThread              │  - useMessages                 │
+│  - resumeThread            │  - useSmoothText               │
 ├─────────────────────────────────────────────────────────────┤
 │                   Durable Agent Component                    │
 ├──────────────┬──────────────┬──────────────┬────────────────┤

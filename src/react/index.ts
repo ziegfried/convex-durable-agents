@@ -957,11 +957,11 @@ export type UseAgentChatReturn = {
   /** Whether the thread has been stopped */
   isStopped: boolean;
   /** Send a message to the thread */
-  sendMessage: (args: { threadId: string; prompt: string }) => Promise<null>;
-  /** Stop the thread (only available if stopThread mutation is provided) */
-  stop: (args: { threadId: string }) => Promise<null>;
-  /** Resume the thread (only available if resumeThread mutation is provided) */
-  resume: (args: { threadId: string; prompt?: string }) => Promise<null>;
+  sendMessage: (prompt: string) => Promise<null>;
+  /** Stop the thread */
+  stop: () => Promise<null>;
+  /** Resume the thread with an optional prompt */
+  resume: (prompt?: string) => Promise<null>;
 };
 
 /**
@@ -982,16 +982,16 @@ export type UseAgentChatReturn = {
  * });
  *
  * // Send a message
- * await sendMessage({ threadId, prompt: "Hello!" });
+ * await sendMessage("Hello!");
  *
  * // Stop the agent
  * if (isRunning) {
- *   await stop({ threadId });
+ *   await stop();
  * }
  *
  * // Resume after stopping or failure
  * if (isFailed || isStopped) {
- *   await resume({ threadId });
+ *   await resume();
  * }
  * ```
  */
@@ -1015,17 +1015,17 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   const stopThreadMutation = useMutation(stopThreadRef);
   const resumeThreadMutation = useMutation(resumeThreadRef);
 
-  // Wrap mutations to provide consistent API
-  const sendMessage = async (args: { threadId: string; prompt: string }): Promise<null> => {
-    return sendMessageMutation(args);
+  // Wrap mutations to provide simplified API with threadId pre-bound
+  const sendMessage = async (prompt: string): Promise<null> => {
+    return sendMessageMutation({ threadId, prompt });
   };
 
-  const stop = async (args: { threadId: string }): Promise<null> => {
-    return stopThreadMutation(args);
+  const stop = async (): Promise<null> => {
+    return stopThreadMutation({ threadId });
   };
 
-  const resume = async (args: { threadId: string; prompt?: string }): Promise<null> => {
-    return resumeThreadMutation(args);
+  const resume = async (prompt?: string): Promise<null> => {
+    return resumeThreadMutation({ threadId, prompt });
   };
 
   return {

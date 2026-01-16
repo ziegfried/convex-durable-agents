@@ -32,7 +32,7 @@ export function Chat({ threadId }: { threadId: string }) {
 
     setIsSubmitting(true);
     try {
-      await sendMessage({ threadId, prompt: input.trim() });
+      await sendMessage(input.trim());
       setInput("");
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -43,7 +43,7 @@ export function Chat({ threadId }: { threadId: string }) {
 
   const handleStop = async () => {
     try {
-      await stop({ threadId });
+      await stop();
     } catch (error) {
       console.error("Failed to stop thread:", error);
     }
@@ -51,7 +51,7 @@ export function Chat({ threadId }: { threadId: string }) {
 
   const handleRetry = async () => {
     try {
-      await resume({ threadId });
+      await resume();
     } catch (error) {
       console.error("Failed to retry:", error);
     }
