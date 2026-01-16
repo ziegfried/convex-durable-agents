@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- streamHandlerAction args factory
+
 ## 0.1.3
 
 - Use UIMessage type from AI SDK rather than a custom variant
