@@ -5,7 +5,7 @@
  */
 
 import type { UIMessage as AIUIMessage, TextUIPart, DynamicToolUIPart } from "ai";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -907,4 +907,131 @@ export function getMessageOrder(message: UIMessage): number {
  */
 export function getMessageCreationTime(message: UIMessage): number {
   return message.metadata?._creationTime ?? 0;
+}
+
+// ============================================================================
+// useAgentChat Hook
+// ============================================================================
+
+// Mutation types for the agent API
+type SendMessageMutation = FunctionReference<"mutation", "public", { threadId: string; prompt: string }, null>;
+
+type StopThreadMutation = FunctionReference<"mutation", "public", { threadId: string }, null>;
+
+type ResumeThreadMutation = FunctionReference<"mutation", "public", { threadId: string; prompt?: string }, null>;
+
+export type UseAgentChatOptions = {
+  /** Query to list messages with streaming support */
+  listMessages: StreamingMessagesQuery;
+  /** Query to get thread status */
+  getThread: ThreadQuery;
+  /** Mutation to send a message */
+  sendMessage: SendMessageMutation;
+  /** Mutation to stop the thread */
+  stopThread: StopThreadMutation;
+  /** Mutation to resume the thread */
+  resumeThread: ResumeThreadMutation;
+  /** The thread ID to chat with */
+  threadId: string;
+  /** Enable streaming (defaults to true) */
+  stream?: boolean;
+  /** Stream IDs to skip */
+  skipStreamIds?: Array<string>;
+};
+
+export type UseAgentChatReturn = {
+  /** Messages in the thread */
+  messages: UIMessage[];
+  /** Thread document */
+  thread: ThreadDoc | null | undefined;
+  /** Current thread status */
+  status: ThreadStatus | undefined;
+  /** Whether the thread is loading */
+  isLoading: boolean;
+  /** Whether the thread is currently running (streaming or awaiting tool results) */
+  isRunning: boolean;
+  /** Whether the thread has completed */
+  isComplete: boolean;
+  /** Whether the thread has failed */
+  isFailed: boolean;
+  /** Whether the thread has been stopped */
+  isStopped: boolean;
+  /** Send a message to the thread */
+  sendMessage: (args: { threadId: string; prompt: string }) => Promise<null>;
+  /** Stop the thread (only available if stopThread mutation is provided) */
+  stop: (args: { threadId: string }) => Promise<null>;
+  /** Resume the thread (only available if resumeThread mutation is provided) */
+  resume: (args: { threadId: string; prompt?: string }) => Promise<null>;
+};
+
+/**
+ * Combined hook for chat functionality with an agent thread.
+ *
+ * This hook combines `useThread` with streaming enabled and provides
+ * mutation functions for sending messages, stopping, and resuming the thread.
+ *
+ * @example
+ * ```tsx
+ * const { messages, status, sendMessage, stop, resume, isRunning } = useAgentChat({
+ *   listMessages: api.chat.listMessagesWithStreams,
+ *   getThread: api.chat.getThread,
+ *   sendMessage: api.chat.sendMessage,
+ *   stopThread: api.chat.stopThread,
+ *   resumeThread: api.chat.resumeThread,
+ *   threadId,
+ * });
+ *
+ * // Send a message
+ * await sendMessage({ threadId, prompt: "Hello!" });
+ *
+ * // Stop the agent
+ * if (isRunning) {
+ *   await stop({ threadId });
+ * }
+ *
+ * // Resume after stopping or failure
+ * if (isFailed || isStopped) {
+ *   await resume({ threadId });
+ * }
+ * ```
+ */
+export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
+  const {
+    listMessages,
+    getThread,
+    sendMessage: sendMessageRef,
+    stopThread: stopThreadRef,
+    resumeThread: resumeThreadRef,
+    threadId,
+    stream = true,
+    skipStreamIds,
+  } = options;
+
+  // Use the combined thread hook with streaming
+  const threadResult = useThread(listMessages, getThread, { threadId }, { stream, skipStreamIds });
+
+  // Create mutation functions
+  const sendMessageMutation = useMutation(sendMessageRef);
+  const stopThreadMutation = useMutation(stopThreadRef);
+  const resumeThreadMutation = useMutation(resumeThreadRef);
+
+  // Wrap mutations to provide consistent API
+  const sendMessage = async (args: { threadId: string; prompt: string }): Promise<null> => {
+    return sendMessageMutation(args);
+  };
+
+  const stop = async (args: { threadId: string }): Promise<null> => {
+    return stopThreadMutation(args);
+  };
+
+  const resume = async (args: { threadId: string; prompt?: string }): Promise<null> => {
+    return resumeThreadMutation(args);
+  };
+
+  return {
+    ...threadResult,
+    sendMessage,
+    stop,
+    resume,
+  };
 }

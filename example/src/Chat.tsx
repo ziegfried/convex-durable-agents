@@ -1,7 +1,6 @@
-import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { useState, useRef, useEffect } from "react";
-import { useThread, getMessageKey } from "convex-durable-agents/react";
+import { useAgentChat, getMessageKey } from "convex-durable-agents/react";
 import { ChatMessage } from "./ChatMessage";
 import { StatusBadge } from "./StatusBadge";
 
@@ -9,21 +8,18 @@ import { StatusBadge } from "./StatusBadge";
  * Chat view component
  */
 export function Chat({ threadId }: { threadId: string }) {
-  const sendMessage = useMutation(api.chat.sendMessage);
-  const stopThread = useMutation(api.chat.stopThread);
-  const resumeThread = useMutation(api.chat.resumeThread);
+  const { messages, status, isLoading, isRunning, isFailed, isStopped, sendMessage, stop, resume } = useAgentChat({
+    listMessages: api.chat.listMessagesWithStreams,
+    getThread: api.chat.getThread,
+    sendMessage: api.chat.sendMessage,
+    stopThread: api.chat.stopThread,
+    resumeThread: api.chat.resumeThread,
+    threadId,
+  });
 
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Use the durable agent hooks with streaming enabled
-  const { messages, status, isLoading, isRunning, isFailed, isStopped } = useThread(
-    api.chat.listMessagesWithStreams,
-    api.chat.getThread,
-    { threadId },
-    { stream: true },
-  );
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -47,7 +43,7 @@ export function Chat({ threadId }: { threadId: string }) {
 
   const handleStop = async () => {
     try {
-      await stopThread({ threadId });
+      await stop({ threadId });
     } catch (error) {
       console.error("Failed to stop thread:", error);
     }
@@ -55,7 +51,7 @@ export function Chat({ threadId }: { threadId: string }) {
 
   const handleRetry = async () => {
     try {
-      await resumeThread({ threadId });
+      await resume({ threadId });
     } catch (error) {
       console.error("Failed to retry:", error);
     }
