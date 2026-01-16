@@ -16,3 +16,8 @@
 ## 0.1.2
 
 - Workpool support
+
+## 0.1.3
+
+- Use UIMessage type from AI SDK rather than a custom variant
+- New `useAgentChat` hook that provides a simple, ergnonomic API for creating chat user interfaces
