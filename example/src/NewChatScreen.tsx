@@ -1,4 +1,4 @@
-import { useAction } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { useState } from "react";
 
@@ -7,7 +7,7 @@ import { useState } from "react";
  * Thread is only created when the first message is sent
  */
 export function NewChatScreen({ onThreadCreated }: { onThreadCreated: (threadId: string) => void }) {
-  const createThread = useAction(api.chat.createThread);
+  const createThread = useMutation(api.chat.createThread);
   const [input, setInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 

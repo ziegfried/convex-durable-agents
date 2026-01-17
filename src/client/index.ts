@@ -433,9 +433,7 @@ export function streamHandlerAction(
 
       // Resolve the args - either directly or by calling the factory function
       const resolvedArgs =
-        typeof argsOrFactory === "function"
-          ? await argsOrFactory(ctx as ActionCtx, args.threadId)
-          : argsOrFactory;
+        typeof argsOrFactory === "function" ? await argsOrFactory(ctx as ActionCtx, args.threadId) : argsOrFactory;
       const { tools, saveStreamDeltas, transformMessages = (messages) => messages, ...streamTextArgs } = resolvedArgs;
 
       // Get the current message order for streaming
@@ -668,7 +666,7 @@ export type MessagesWithStreamsResult = {
 };
 
 export type AgentApi<V extends FunctionVisibility = "public"> = {
-  createThread: RegisteredAction<V, { prompt?: string }, string>;
+  createThread: RegisteredMutation<V, { prompt?: string }, string>;
   sendMessage: RegisteredMutation<V, { threadId: string; prompt: string }, null>;
   resumeThread: RegisteredMutation<V, { threadId: string; prompt?: string }, null>;
   stopThread: RegisteredMutation<V, { threadId: string }, null>;
@@ -720,7 +718,7 @@ function createAgentApi(
   const authorize = options?.authorizationCallback;
 
   return {
-    createThread: action({
+    createThread: mutation({
       args: {
         prompt: v.optional(v.string()),
       },
