@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5
+
+- Update API to make createThread a mutation rather than an action
+
 ## 0.1.4
 
 - streamHandlerAction args factory
