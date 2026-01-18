@@ -1,4 +1,4 @@
-import type { FunctionHandle, GenericMutationCtx, GenericDataModel, FunctionReference } from "convex/server";
+import type { FunctionHandle, FunctionReference, GenericDataModel, GenericMutationCtx } from "convex/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api.js";
 import { internalAction, internalMutation, mutation } from "./_generated/server.js";
@@ -209,7 +209,12 @@ export const executeToolCall = internalAction({
       // The handler string is passed from the client and we need to resolve it
       // For now, we'll use ctx.runAction with a dynamic reference
       // This requires the handler to be a proper function reference string
-      result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolCall.args);
+      // Include threadId in args so handlers can access thread context
+      const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
+      result = await ctx.runAction(args.handler as FunctionHandle<"action">, {
+        ...(toolArgs as Record<string, unknown>),
+        threadId: args.threadId,
+      });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -301,7 +306,10 @@ export const onToolComplete = internalMutation({
 
     // Check stop signal
     if (thread.stopSignal) {
-      await ctx.db.patch(args.threadId, { status: "stopped" });
+      await ctx.runMutation(api.threads.setStatus, {
+        threadId: args.threadId,
+        status: "stopped",
+      });
       return null;
     }
 

@@ -13,7 +13,6 @@ import {
   internalQueryGeneric,
   mutationGeneric,
   queryGeneric,
-  type RegisteredAction,
   type RegisteredMutation,
   type RegisteredQuery,
 } from "convex/server";
@@ -26,8 +25,8 @@ import type { Id } from "../component/_generated/dataModel.js";
 // Types
 // ============================================================================
 
-export type QueryCtx = Pick<GenericQueryCtx<GenericDataModel>, "runQuery">;
-export type MutationCtx = Pick<GenericMutationCtx<GenericDataModel>, "runQuery" | "runMutation">;
+export type QueryCtx = Pick<GenericQueryCtx<GenericDataModel>, "runQuery" | "auth">;
+export type MutationCtx = Pick<GenericMutationCtx<GenericDataModel>, "runQuery" | "runMutation" | "auth">;
 export type ActionCtx = Pick<
   GenericActionCtx<GenericDataModel>,
   "runQuery" | "runMutation" | "runAction" | "storage" | "auth" | "scheduler"
@@ -686,15 +685,19 @@ export type AgentApiOptions = {
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Override workpool for tool execution only */
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  /** Optional: Callback invoked when thread status changes */
+  onStatusChange?: FunctionReference<"mutation", "internal">;
 };
 
-async function serializeWorkpoolOptions(options?: AgentApiOptions): Promise<{
+async function serializeThreadOptions(options?: AgentApiOptions): Promise<{
   workpoolEnqueueAction?: string;
   toolExecutionWorkpoolEnqueueAction?: string;
+  onStatusChangeHandle?: string;
 }> {
   const result: {
     workpoolEnqueueAction?: string;
     toolExecutionWorkpoolEnqueueAction?: string;
+    onStatusChangeHandle?: string;
   } = {};
   if (options?.workpoolEnqueueAction) {
     const handle = await createFunctionHandle(options.workpoolEnqueueAction);
@@ -704,13 +707,17 @@ async function serializeWorkpoolOptions(options?: AgentApiOptions): Promise<{
     const handle = await createFunctionHandle(options.toolExecutionWorkpoolEnqueueAction);
     result.toolExecutionWorkpoolEnqueueAction = handle.toString();
   }
+  if (options?.onStatusChange) {
+    const handle = await createFunctionHandle(options.onStatusChange);
+    result.onStatusChangeHandle = handle.toString();
+  }
   return result;
 }
 
 function createAgentApi(
   component: ComponentApi,
   ref: FunctionReference<"action", "internal" | "public", { threadId: string }>,
-  action: typeof actionGeneric | typeof internalActionGeneric,
+  _action: typeof actionGeneric | typeof internalActionGeneric,
   query: typeof queryGeneric | typeof internalQueryGeneric,
   mutation: typeof mutationGeneric | typeof internalMutationGeneric,
   options?: AgentApiOptions,
@@ -727,12 +734,12 @@ function createAgentApi(
         // Create a function handle that can be scheduled from within the component
         const handle = await createFunctionHandle(ref);
 
-        // Serialize workpool options
-        const serializedWorkpool = await serializeWorkpoolOptions(options);
+        // Serialize thread options (workpool + status callback)
+        const serializedOptions = await serializeThreadOptions(options);
 
         const thread = await ctx.runMutation(component.threads.create, {
           streamFnHandle: handle,
-          ...serializedWorkpool,
+          ...serializedOptions,
         });
 
         if (args.prompt) {
@@ -1044,7 +1051,7 @@ type WorkpoolLike = {
  *
  * // convex/chat.ts
  * export const { createThread, sendMessage, ... } = defineAgentApi(
- *   components.durable_agent,
+ *   components.durable_agents,
  *   internal.chat.chatAgentHandler,
  *   { workpoolEnqueueAction: internal.workpool.enqueueWorkpoolAction }
  * );

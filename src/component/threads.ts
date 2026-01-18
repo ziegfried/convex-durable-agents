@@ -1,3 +1,4 @@
+import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { internalQuery, mutation, query } from "./_generated/server.js";
@@ -49,6 +50,7 @@ export const vThreadDocWithStreamFnHandle = v.object({
   streamFnHandle: v.optional(v.union(v.string(), v.null())),
   workpoolEnqueueAction: v.optional(v.string()),
   toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
+  onStatusChangeHandle: v.optional(v.string()),
 });
 
 export const create = mutation({
@@ -56,15 +58,19 @@ export const create = mutation({
     streamFnHandle: v.string(),
     workpoolEnqueueAction: v.optional(v.string()),
     toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
+    onStatusChangeHandle: v.optional(v.string()),
   },
   returns: vThreadDoc,
   handler: async (ctx, args) => {
+    // Create thread in "completed" (idle) state - it will transition to "streaming"
+    // when resume() is called followed by continueStream()
     const threadId = await ctx.db.insert("threads", {
-      status: "streaming",
+      status: "completed",
       stopSignal: false,
       streamFnHandle: args.streamFnHandle,
       workpoolEnqueueAction: args.workpoolEnqueueAction,
       toolExecutionWorkpoolEnqueueAction: args.toolExecutionWorkpoolEnqueueAction,
+      onStatusChangeHandle: args.onStatusChangeHandle,
     });
     const thread = await ctx.db.get(threadId);
     return publicThread(thread!);
@@ -107,10 +113,18 @@ export const resume = mutation({
         .order("desc")
         .first();
       if (lastMessage?.message.role === "user") {
+        const previousStatus = thread.status;
         await ctx.db.patch(args.threadId, {
           status: "streaming",
           stopSignal: false,
         });
+        if (thread.onStatusChangeHandle) {
+          await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
+            threadId: args.threadId,
+            status: "streaming",
+            previousStatus,
+          });
+        }
       } else {
         console.warn(`Cannot resume thread status=${thread.status} without new user message`);
         return null;
@@ -137,10 +151,18 @@ export const setStatus = mutation({
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
+    const previousStatus = thread.status;
     await ctx.db.patch(args.threadId, {
       status: args.status,
       streamId: args.streamId,
     });
+    if (thread.onStatusChangeHandle && previousStatus !== args.status) {
+      await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
+        threadId: args.threadId,
+        status: args.status,
+        previousStatus,
+      });
+    }
     return null;
   },
 });

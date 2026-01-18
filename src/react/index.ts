@@ -4,7 +4,7 @@
  * React hooks for the durable_agent component.
  */
 
-import type { UIMessage as AIUIMessage, TextUIPart, DynamicToolUIPart } from "ai";
+import type { UIMessage as AIUIMessage, DynamicToolUIPart, TextUIPart } from "ai";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -45,7 +45,7 @@ export type ConvexUIMessageMetadata = {
 export type UIMessage = AIUIMessage<ConvexUIMessageMetadata>;
 
 // Re-export AI SDK part types for consumers
-export type { TextUIPart, DynamicToolUIPart } from "ai";
+export type { DynamicToolUIPart, TextUIPart } from "ai";
 
 // Stream args for delta streaming
 export type StreamArgs =
@@ -207,12 +207,12 @@ type MessagesQuery = FunctionReference<"query", "public", { threadId: string }, 
 function combineUIMessages(messages: UIMessage[]): UIMessage[] {
   return messages.reduce((acc, message) => {
     if (!acc.length) return [message];
-
     const previous = acc[acc.length - 1];
+    if (!previous) return [message];
 
     // Check if current message has tool results that match tool calls in previous message
     const prevToolCallIds = new Set(
-      previous.parts
+      previous?.parts
         .filter((p): p is DynamicToolUIPart => p.type === "dynamic-tool" && p.state === "input-available")
         .map((p) => p.toolCallId),
     );
@@ -224,7 +224,7 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
 
     // If there are matching tool results, merge the messages
     if (currToolResults.length > 0) {
-      const newParts = [...previous.parts] as Array<TextUIPart | DynamicToolUIPart>;
+      const newParts = [...(previous?.parts ?? [])] as Array<TextUIPart | DynamicToolUIPart>;
 
       for (const part of message.parts) {
         if (part.type === "dynamic-tool" && part.state === "output-available") {
@@ -395,11 +395,11 @@ export function useMessages(
     // Update the last assistant message status if thread is running
     if (threadStatus === "streaming" || threadStatus === "awaiting_tool_results") {
       for (let i = combinedMessages.length - 1; i >= 0; i--) {
-        if (combinedMessages[i].role === "assistant") {
+        if (combinedMessages[i]!.role === "assistant") {
           combinedMessages[i] = {
-            ...combinedMessages[i],
+            ...combinedMessages[i]!,
             metadata: {
-              ...combinedMessages[i].metadata!,
+              ...combinedMessages[i]!.metadata!,
               status: threadStatus,
             },
           };
@@ -591,10 +591,10 @@ export function useDeltaStreams(
     args === "skip"
       ? undefined
       : !streamList
-        ? state.current.deltaStreams?.map(({ streamMessage }) => streamMessage)
+        ? state.current.deltaStreams?.map(({ streamMessage }: { streamMessage: StreamMessage }) => streamMessage)
         : sorted(
             (streamList.streams?.messages ?? []).filter(
-              ({ streamId, order }) =>
+              ({ streamId, order }: { streamId: string; order: number }) =>
                 !options?.skipStreamIds?.includes(streamId) && (!options?.startOrder || order >= options.startOrder),
             ),
           );
@@ -608,7 +608,7 @@ export function useDeltaStreams(
           threadId: args.threadId,
           streamArgs: {
             kind: "deltas",
-            cursors: streamMessages.map(({ streamId }) => ({
+            cursors: streamMessages.map(({ streamId }: { streamId: string }) => ({
               streamId,
               cursor: cursors[streamId] ?? 0,
             })),
@@ -632,16 +632,18 @@ export function useDeltaStreams(
     const newCursors: Record<string, number> = {};
     for (const { streamId } of streamMessages) {
       const deltas = newDeltasByStreamId.get(streamId);
-      const cursor = deltas?.length ? deltas[deltas.length - 1].end : cursors[streamId];
+      const cursor = deltas?.length ? deltas[deltas.length - 1]!.end : cursors[streamId];
       if (cursor !== undefined) {
         newCursors[streamId] = cursor;
       }
     }
     setCursors(newCursors);
 
-    state.current.deltaStreams = streamMessages.map((streamMessage) => {
+    state.current.deltaStreams = streamMessages.map((streamMessage: StreamMessage) => {
       const streamId = streamMessage.streamId;
-      const old = state.current.deltaStreams?.find((ds) => ds.streamMessage.streamId === streamId);
+      const old = state.current.deltaStreams?.find(
+        (ds: { streamMessage: StreamMessage; deltas: Array<StreamDelta> }) => ds.streamMessage.streamId === streamId,
+      );
       const deltasList = newDeltasByStreamId.get(streamId);
       if (!deltasList && streamMessage === old?.streamMessage) {
         return old;
@@ -783,11 +785,11 @@ export function useMessagesWithStreaming(
     // Update the last assistant message status if thread is running
     if (threadStatus === "streaming" || threadStatus === "awaiting_tool_results") {
       for (let i = merged.length - 1; i >= 0; i--) {
-        if (merged[i].role === "assistant") {
+        if (merged[i]!.role === "assistant") {
           merged[i] = {
-            ...merged[i],
+            ...merged[i]!,
             metadata: {
-              ...merged[i].metadata!,
+              ...merged[i]!.metadata!,
               status: threadStatus,
             },
           };

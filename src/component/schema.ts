@@ -53,6 +53,8 @@ const schema = defineSchema({
     // Optional workpool handles for scheduling actions
     workpoolEnqueueAction: v.optional(v.string()),
     toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
+    // Optional callback for status changes
+    onStatusChangeHandle: v.optional(v.string()),
   }),
 
   // AI SDK compatible message storage
