@@ -221,6 +221,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         {
+          onStatusChangeHandle?: string;
           streamFnHandle: string;
           toolExecutionWorkpoolEnqueueAction?: string;
           workpoolEnqueueAction?: string;

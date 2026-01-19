@@ -49,6 +49,6 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  durable_agent: import("convex-durable-agents/_generated/component.js").ComponentApi<"durable_agent">;
+  durable_agents: import("convex-durable-agents/_generated/component.js").ComponentApi<"durable_agents">;
   agentWorkpool: import("@convex-dev/workpool/_generated/component.js").ComponentApi<"agentWorkpool">;
 };

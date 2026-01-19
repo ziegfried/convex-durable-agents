@@ -25,7 +25,7 @@ export const { enqueueWorkpoolAction } = createWorkpoolBridge(pool);
  * The chat agent handler - processes messages and generates responses.
  * This is an internal action that gets scheduled by the component.
  */
-export const chatAgentHandler = streamHandlerAction(components.durable_agent, {
+export const chatAgentHandler = streamHandlerAction(components.durable_agents, {
   model: "anthropic/claude-sonnet-4.5",
   system: `You are a helpful, friendly AI assistant.
     You can help users with various tasks and answer their questions.
@@ -70,6 +70,6 @@ export const {
   stopThread,
   addToolError,
   addToolResult,
-} = defineAgentApi(components.durable_agent, internal.chat.chatAgentHandler, {
+} = defineAgentApi(components.durable_agents, internal.chat.chatAgentHandler, {
   workpoolEnqueueAction: internal.chat.enqueueWorkpoolAction,
 });
