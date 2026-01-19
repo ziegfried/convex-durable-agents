@@ -53,8 +53,6 @@ Create a chat handler with your AI model and tools:
 
 ```ts
 // convex/chat.ts
-"use node";
-
 import { z } from "zod";
 import { components, internal } from "./_generated/api";
 import { createActionTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
@@ -149,8 +147,6 @@ Tools are defined as Convex actions:
 
 ```ts
 // convex/tools/weather.ts
-"use node";
-
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 
