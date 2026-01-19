@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Status callback options
+- Emit tool call parts as tool-<toolName> rather than dynamic tool calls
+
 ## 0.1.5
 
 - Update API to make createThread a mutation rather than an action
