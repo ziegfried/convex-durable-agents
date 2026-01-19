@@ -117,12 +117,15 @@ export const getByToolCallId = query({
   },
   returns: v.union(vToolCallDoc, v.null()),
   handler: async (ctx, args) => {
-    const toolCalls = await ctx.db
+    const toolCall = await ctx.db
       .query("tool_calls")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
-      .collect();
+      .withIndex("by_tool_call_id", (q) => q.eq("toolCallId", args.toolCallId))
+      .unique();
 
-    const toolCall = toolCalls.find((tc) => tc.toolCallId === args.toolCallId);
+    // Verify the tool call belongs to the specified thread
+    if (toolCall && toolCall.threadId !== args.threadId) {
+      return null;
+    }
     return toolCall ? publicToolCall(toolCall) : null;
   },
 });

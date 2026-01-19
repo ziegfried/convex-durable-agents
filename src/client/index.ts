@@ -85,6 +85,17 @@ export type MessageDoc = {
   };
 };
 
+const vClientMessageDoc = v.object({
+  _id: v.string(),
+  _creationTime: v.number(),
+  threadId: v.string(),
+  order: v.number(),
+  message: v.object({
+    role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant"), v.literal("tool")),
+    content: v.union(v.string(), v.array(v.any())),
+  }),
+});
+
 // Sync durable tool definition - handler returns the result directly
 export type SyncTool<INPUT = unknown, OUTPUT = unknown> = {
   type: "sync";
@@ -844,6 +855,7 @@ function createAgentApi(
       args: {
         threadId: v.string(),
       },
+      returns: v.array(vClientMessageDoc),
       handler: async (ctx, args): Promise<MessageDoc[]> => {
         if (authorize) await authorize(ctx, args.threadId);
         return ctx.runQuery(component.messages.list, {
