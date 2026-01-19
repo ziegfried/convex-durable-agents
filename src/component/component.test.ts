@@ -19,7 +19,7 @@ describe("threads", () => {
     });
     expect(thread).toBeDefined();
     expect(thread._id).toBeDefined();
-    expect(thread.status).toBe("streaming");
+    expect(thread.status).toBe("completed");
     expect(thread.stopSignal).toBe(false);
     expect(thread.streamFnHandle).toBe("test-handle");
   });
@@ -32,7 +32,7 @@ describe("threads", () => {
     const thread = await t.query(api.threads.get, { threadId: created._id });
     expect(thread).toBeDefined();
     expect(thread?._id).toBe(created._id);
-    expect(thread?.status).toBe("streaming");
+    expect(thread?.status).toBe("completed");
   });
 
   test("set thread status", async () => {
@@ -280,7 +280,7 @@ describe("agent flow", () => {
     const thread = await t.mutation(api.threads.create, {
       streamFnHandle: "test-handle",
     });
-    expect(thread.status).toBe("streaming");
+    expect(thread.status).toBe("completed");
 
     // Add user message
     await t.mutation(api.messages.add, {
