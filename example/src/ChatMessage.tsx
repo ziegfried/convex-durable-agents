@@ -1,6 +1,6 @@
-import { getMessageText, getMessageStatus, type UIMessage, type ToolCallUIPart } from "convex-durable-agents/react";
-import { SmoothText } from "./SmoothText";
+import { type ToolCallUIPart, type UIMessage, getMessageStatus, getMessageText } from "convex-durable-agents/react";
 import { useState } from "react";
+import { SmoothText } from "./SmoothText";
 
 /**
  * Helper to check if a part is a tool call

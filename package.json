@@ -8,15 +8,7 @@
   },
   "version": "0.1.6",
   "license": "Apache-2.0",
-  "keywords": [
-    "convex",
-    "component",
-    "ai",
-    "agents",
-    "durable",
-    "llm",
-    "tools"
-  ],
+  "keywords": ["convex", "component", "ai", "agents", "durable", "llm", "tools"],
   "type": "module",
   "scripts": {
     "dev": "run-p -r 'dev:*'",
@@ -29,7 +21,7 @@
     "build:clean": "rm -rf dist *.tsbuildinfo && npm run build:codegen",
     "typecheck": "tsc --noEmit && tsc -p example && tsc -p example/convex",
     "lint": "eslint .",
-    "format": "prettier --write .",
+    "format": "biome check --write .",
     "fix": "bun lint --fix && bun format",
     "all": "run-p -r 'dev:*' 'test:watch'",
     "test": "vitest run --typecheck",
@@ -39,12 +31,9 @@
     "preversion": "npm run build:clean && run-p test lint typecheck",
     "alpha": "npm version prerelease --preid alpha && npm publish --tag alpha && git push --follow-tags",
     "release": "npm version patch && npm publish && git push --follow-tags",
-    "version": "vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && prettier -w CHANGELOG.md && git add CHANGELOG.md"
+    "version": "vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && biome check --write CHANGELOG.md && git add CHANGELOG.md"
   },
-  "files": [
-    "dist",
-    "src"
-  ],
+  "files": ["dist", "src"],
   "exports": {
     "./package.json": "./package.json",
     ".": {
@@ -83,6 +72,7 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@convex-dev/eslint-plugin": "^1.1.1",
     "@convex-dev/workpool": "^0.3.1",
     "@edge-runtime/vm": "^5.0.0",
@@ -105,7 +95,6 @@
     "npm-run-all2": "8.0.4",
     "path-exists-cli": "2.0.0",
     "pkg-pr-new": "^0.0.60",
-    "prettier": "3.7.4",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "typescript": "5.9.3",

@@ -1,6 +1,6 @@
+import { useSmoothText } from "convex-durable-agents/react";
 /* eslint-disable react-hooks/refs */
 import { useRef } from "react";
-import { useSmoothText } from "convex-durable-agents/react";
 
 /**
  * Smooth text component for streaming messages

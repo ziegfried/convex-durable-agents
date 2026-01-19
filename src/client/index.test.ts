@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { createActionTool, createAsyncTool } from "./index.js";
 import { z } from "zod";
+import { createActionTool, createAsyncTool } from "./index.js";
 
 describe("tool definition helpers", () => {
   test("createActionTool creates sync tool definition", () => {

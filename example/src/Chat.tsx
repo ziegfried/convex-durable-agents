@@ -1,6 +1,6 @@
+import { getMessageKey, useAgentChat } from "convex-durable-agents/react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
-import { useState, useRef, useEffect } from "react";
-import { useAgentChat, getMessageKey } from "convex-durable-agents/react";
 import { ChatMessage } from "./ChatMessage";
 import { StatusBadge } from "./StatusBadge";
 

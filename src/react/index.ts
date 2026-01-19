@@ -554,25 +554,28 @@ function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>):
  */
 function dedupeMessages(messages: Array<UIMessage>, streamMessages: Array<UIMessage>): Array<UIMessage> {
   const combined = sorted([...messages, ...streamMessages]);
-  return combined.reduce((msgs, msg) => {
-    const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-    if (!last) {
-      return [msg];
-    }
-    const lastOrder = last.metadata?.order;
-    const msgOrder = msg.metadata?.order;
-    if (lastOrder !== msgOrder) {
-      msgs.push(msg);
+  return combined.reduce(
+    (msgs, msg) => {
+      const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+      if (!last) {
+        return [msg];
+      }
+      const lastOrder = last.metadata?.order;
+      const msgOrder = msg.metadata?.order;
+      if (lastOrder !== msgOrder) {
+        msgs.push(msg);
+        return msgs;
+      }
+      // Same order - check if we should replace
+      const lastStatus = last.metadata?.status;
+      const msgStatus = msg.metadata?.status;
+      if ((lastStatus === "streaming" || lastStatus === "awaiting_tool_results") && msgStatus === "success") {
+        return [...msgs.slice(0, -1), msg];
+      }
       return msgs;
-    }
-    // Same order - check if we should replace
-    const lastStatus = last.metadata?.status;
-    const msgStatus = msg.metadata?.status;
-    if ((lastStatus === "streaming" || lastStatus === "awaiting_tool_results") && msgStatus === "success") {
-      return [...msgs.slice(0, -1), msg];
-    }
-    return msgs;
-  }, [] as Array<UIMessage>);
+    },
+    [] as Array<UIMessage>,
+  );
 }
 
 /**

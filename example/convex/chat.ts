@@ -1,8 +1,8 @@
+import { Workpool } from "@convex-dev/workpool";
+import { createActionTool, createAsyncTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
+import { createWorkpoolBridge } from "convex-durable-agents";
 import { z } from "zod";
 import { components, internal } from "./_generated/api.js";
-import { createActionTool, createAsyncTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
-import { Workpool } from "@convex-dev/workpool";
-import { createWorkpoolBridge } from "convex-durable-agents";
 
 const pool = new Workpool(components.agentWorkpool, {
   maxParallelism: 5,

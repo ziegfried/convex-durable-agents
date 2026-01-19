@@ -1,8 +1,8 @@
+import component from "convex-durable-agents/test";
+import { convexTest } from "convex-test";
 /// <reference types="vite/client" />
 import { test } from "vitest";
-import { convexTest } from "convex-test";
 import schema from "./schema.js";
-import component from "convex-durable-agents/test";
 
 const modules = import.meta.glob("./**/*.*s");
 // When users want to write tests that use your component, they need to

@@ -1,10 +1,10 @@
 import "./App.css";
 import { useMutation, useQuery } from "convex/react";
-import { api } from "../convex/_generated/api";
 import { useState } from "react";
-import { ThreadSidebar } from "./ThreadSidebar";
+import { api } from "../convex/_generated/api";
 import { Chat } from "./Chat";
 import { NewChatScreen } from "./NewChatScreen";
+import { ThreadSidebar } from "./ThreadSidebar";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 function App() {
