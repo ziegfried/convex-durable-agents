@@ -59,9 +59,9 @@ export const continueStream = mutation({
       return null;
     }
 
-    // Check if we can continue (must be streaming or awaiting_tool_results with no pending)
-    if (thread.status !== "streaming" && thread.status !== "awaiting_tool_results") {
-      console.log(`Thread ${args.threadId} is ${thread.status}, cannot continue`);
+    // Check if thread is in stopped state
+    if (thread.status === "stopped") {
+      console.log(`Thread ${args.threadId} is ${thread.status}`);
       return null;
     }
 
@@ -209,12 +209,8 @@ export const executeToolCall = internalAction({
       // The handler string is passed from the client and we need to resolve it
       // For now, we'll use ctx.runAction with a dynamic reference
       // This requires the handler to be a proper function reference string
-      // Include threadId in args so handlers can access thread context
       const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
-      result = await ctx.runAction(args.handler as FunctionHandle<"action">, {
-        ...(toolArgs as Record<string, unknown>),
-        threadId: args.threadId,
-      });
+      result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolArgs as Record<string, unknown>);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
