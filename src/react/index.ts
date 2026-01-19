@@ -4,7 +4,7 @@
  * React hooks for the durable_agent component.
  */
 
-import type { UIMessage as AIUIMessage, DynamicToolUIPart, TextUIPart } from "ai";
+import type { UIMessage as AIUIMessage, TextUIPart } from "ai";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -44,8 +44,38 @@ export type ConvexUIMessageMetadata = {
 // UI-friendly message format using AI SDK's UIMessage with custom metadata
 export type UIMessage = AIUIMessage<ConvexUIMessageMetadata>;
 
+// Tool part type matching AI SDK's ToolUIPart format (type: "tool-{toolName}")
+// Uses discriminated union to match AI SDK's type structure
+export type ToolCallUIPart =
+  | {
+      type: `tool-${string}`;
+      toolCallId: string;
+      state: "input-streaming";
+      input: unknown | undefined;
+    }
+  | {
+      type: `tool-${string}`;
+      toolCallId: string;
+      state: "input-available";
+      input: unknown;
+    }
+  | {
+      type: `tool-${string}`;
+      toolCallId: string;
+      state: "output-available";
+      input: unknown;
+      output: unknown;
+    }
+  | {
+      type: `tool-${string}`;
+      toolCallId: string;
+      state: "output-error";
+      input: unknown;
+      errorText: string;
+    };
+
 // Re-export AI SDK part types for consumers
-export type { DynamicToolUIPart, TextUIPart } from "ai";
+export type { TextUIPart } from "ai";
 
 // Stream args for delta streaming
 export type StreamArgs =
@@ -199,6 +229,16 @@ export function useThreadStatus(
 
 type MessagesQuery = FunctionReference<"query", "public", { threadId: string }, MessageDoc[]>;
 
+function isToolPart(part: unknown): part is ToolCallUIPart {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    "type" in part &&
+    typeof (part as { type: unknown }).type === "string" &&
+    (part as { type: string }).type.startsWith("tool-")
+  );
+}
+
 /**
  * Combine consecutive assistant messages by merging tool results.
  * This merges tool-call parts (input-available) with their corresponding tool-result parts (output-available)
@@ -213,38 +253,37 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
     // Check if current message has tool results that match tool calls in previous message
     const prevToolCallIds = new Set(
       previous?.parts
-        .filter((p): p is DynamicToolUIPart => p.type === "dynamic-tool" && p.state === "input-available")
+        .filter((p): p is ToolCallUIPart => isToolPart(p) && p.state === "input-available")
         .map((p) => p.toolCallId),
     );
 
     const currToolResults = message.parts.filter(
-      (p): p is DynamicToolUIPart =>
-        p.type === "dynamic-tool" && p.state === "output-available" && prevToolCallIds.has(p.toolCallId),
+      (p): p is ToolCallUIPart => isToolPart(p) && p.state === "output-available" && prevToolCallIds.has(p.toolCallId),
     );
 
     // If there are matching tool results, merge the messages
     if (currToolResults.length > 0) {
-      const newParts = [...(previous?.parts ?? [])] as Array<TextUIPart | DynamicToolUIPart>;
+      const newParts = [...(previous?.parts ?? [])] as Array<TextUIPart | ToolCallUIPart>;
 
       for (const part of message.parts) {
-        if (part.type === "dynamic-tool" && part.state === "output-available") {
+        if (isToolPart(part) && part.state === "output-available") {
+          const toolPart = part as ToolCallUIPart & { state: "output-available" };
           const existingIdx = newParts.findIndex(
-            (p) => p.type === "dynamic-tool" && p.toolCallId === part.toolCallId && p.state === "input-available",
+            (p) => isToolPart(p) && p.toolCallId === toolPart.toolCallId && p.state === "input-available",
           );
           if (existingIdx !== -1) {
-            const existing = newParts[existingIdx] as DynamicToolUIPart;
+            const existing = newParts[existingIdx] as ToolCallUIPart & { state: "input-available" };
             newParts[existingIdx] = {
-              type: "dynamic-tool",
-              toolName: existing.toolName,
+              type: existing.type,
               toolCallId: existing.toolCallId,
               state: "output-available",
               input: existing.input,
-              output: part.output,
-            } as DynamicToolUIPart;
+              output: toolPart.output,
+            };
             continue;
           }
         }
-        newParts.push(part as TextUIPart | DynamicToolUIPart);
+        newParts.push(part as TextUIPart | ToolCallUIPart);
       }
 
       const newStatus = message.metadata?.status === "success" ? previous.metadata?.status : message.metadata?.status;
@@ -268,7 +307,7 @@ function combineUIMessages(messages: UIMessage[]): UIMessage[] {
 /**
  * Convert a content part to AI SDK UIMessagePart format
  */
-function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
+function toUIMessagePart(part: unknown): TextUIPart | ToolCallUIPart {
   if (typeof part !== "object" || part === null) {
     return { type: "text", text: String(part) };
   }
@@ -280,9 +319,9 @@ function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
   }
 
   if (p.type === "tool-call") {
+    const toolName = String(p.toolName ?? "");
     return {
-      type: "dynamic-tool",
-      toolName: String(p.toolName ?? ""),
+      type: `tool-${toolName}`,
       toolCallId: String(p.toolCallId ?? ""),
       state: "input-available",
       input: p.input ?? p.args,
@@ -290,9 +329,9 @@ function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
   }
 
   if (p.type === "tool-result") {
+    const toolName = String(p.toolName ?? "");
     return {
-      type: "dynamic-tool",
-      toolName: String(p.toolName ?? ""),
+      type: `tool-${toolName}`,
       toolCallId: String(p.toolCallId ?? ""),
       state: "output-available",
       input: p.input ?? p.args ?? {},
@@ -301,11 +340,11 @@ function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
   }
 
   if (p.type === "tool-invocation") {
+    const toolName = String(p.toolName ?? "");
     const state = p.state === "result" ? "output-available" : "input-available";
     if (state === "output-available") {
       return {
-        type: "dynamic-tool",
-        toolName: String(p.toolName ?? ""),
+        type: `tool-${toolName}`,
         toolCallId: String(p.toolCallId ?? ""),
         state: "output-available",
         input: p.input ?? p.args ?? {},
@@ -313,8 +352,7 @@ function toUIMessagePart(part: unknown): TextUIPart | DynamicToolUIPart {
       };
     }
     return {
-      type: "dynamic-tool",
-      toolName: String(p.toolName ?? ""),
+      type: `tool-${toolName}`,
       toolCallId: String(p.toolCallId ?? ""),
       state: "input-available",
       input: p.input ?? p.args,
@@ -332,7 +370,7 @@ function toUIMessage(message: MessageDoc, threadStatus: ThreadStatus | undefined
   const content = message.message.content;
 
   // Build parts array with proper AI SDK types
-  const parts: Array<TextUIPart | DynamicToolUIPart> = [];
+  const parts: Array<TextUIPart | ToolCallUIPart> = [];
   if (typeof content === "string") {
     parts.push({ type: "text", text: content });
   } else if (Array.isArray(content)) {
