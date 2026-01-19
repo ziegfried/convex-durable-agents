@@ -6,9 +6,17 @@
   "bugs": {
     "url": "https://github.com/ziegfried/convex-durable-agents/issues"
   },
-  "version": "0.1.6",
+  "version": "0.1.7",
   "license": "Apache-2.0",
-  "keywords": ["convex", "component", "ai", "agents", "durable", "llm", "tools"],
+  "keywords": [
+    "convex",
+    "component",
+    "ai",
+    "agents",
+    "durable",
+    "llm",
+    "tools"
+  ],
   "type": "module",
   "scripts": {
     "dev": "run-p -r 'dev:*'",
@@ -33,7 +41,10 @@
     "release": "npm version patch && npm publish && git push --follow-tags",
     "version": "vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && biome check --write CHANGELOG.md && git add CHANGELOG.md"
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "exports": {
     "./package.json": "./package.json",
     ".": {

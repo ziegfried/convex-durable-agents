@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Minor tweaks to conform with convex component best practices
+
 ## 0.1.6
 
 - Status callback options
