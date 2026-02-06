@@ -4,16 +4,24 @@
  * React hooks for the durable_agent component.
  */
 
-import type { UIMessage as AIUIMessage, TextUIPart } from "ai";
+import type { TextUIPart } from "ai";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ThreadStatus, ToolCallUIPart, UIMessage } from "./message-utils";
+import {
+  combineUIMessages,
+  dedupeMessages,
+  filterFinishedStreamMessages,
+  getDbMessageOrders,
+  getOrder,
+} from "./message-utils";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type ThreadStatus = "streaming" | "awaiting_tool_results" | "completed" | "failed" | "stopped";
+export type { ConvexUIMessageMetadata, ThreadStatus, ToolCallUIPart, UIMessage } from "./message-utils";
 
 export type ThreadDoc = {
   _id: string;
@@ -27,52 +35,9 @@ export type MessageDoc = {
   _creationTime: number;
   threadId: string;
   order: number;
-  message: {
-    role: "system" | "user" | "assistant" | "tool";
-    content: string | Array<unknown>;
-  };
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | Array<unknown>;
 };
-
-// Metadata type for custom fields in UIMessage
-export type ConvexUIMessageMetadata = {
-  key: string;
-  order: number;
-  status: ThreadStatus | "success";
-  _creationTime: number;
-};
-
-// UI-friendly message format using AI SDK's UIMessage with custom metadata
-export type UIMessage = AIUIMessage<ConvexUIMessageMetadata>;
-
-// Tool part type matching AI SDK's ToolUIPart format (type: "tool-{toolName}")
-// Uses discriminated union to match AI SDK's type structure
-export type ToolCallUIPart =
-  | {
-      type: `tool-${string}`;
-      toolCallId: string;
-      state: "input-streaming";
-      input: unknown | undefined;
-    }
-  | {
-      type: `tool-${string}`;
-      toolCallId: string;
-      state: "input-available";
-      input: unknown;
-    }
-  | {
-      type: `tool-${string}`;
-      toolCallId: string;
-      state: "output-available";
-      input: unknown;
-      output: unknown;
-    }
-  | {
-      type: `tool-${string}`;
-      toolCallId: string;
-      state: "output-error";
-      input: unknown;
-      errorText: string;
-    };
 
 // Re-export AI SDK part types for consumers
 export type { TextUIPart } from "ai";
@@ -229,81 +194,6 @@ export function useThreadStatus(
 
 type MessagesQuery = FunctionReference<"query", "public", { threadId: string }, MessageDoc[]>;
 
-function isToolPart(part: unknown): part is ToolCallUIPart {
-  return (
-    typeof part === "object" &&
-    part !== null &&
-    "type" in part &&
-    typeof (part as { type: unknown }).type === "string" &&
-    (part as { type: string }).type.startsWith("tool-")
-  );
-}
-
-/**
- * Combine consecutive assistant messages by merging tool results.
- * This merges tool-call parts (input-available) with their corresponding tool-result parts (output-available)
- * by matching toolCallId.
- */
-function combineUIMessages(messages: UIMessage[]): UIMessage[] {
-  return messages.reduce((acc, message) => {
-    if (!acc.length) return [message];
-    const previous = acc[acc.length - 1];
-    if (!previous) return [message];
-
-    // Check if current message has tool results that match tool calls in previous message
-    const prevToolCallIds = new Set(
-      previous?.parts
-        .filter((p): p is ToolCallUIPart => isToolPart(p) && p.state === "input-available")
-        .map((p) => p.toolCallId),
-    );
-
-    const currToolResults = message.parts.filter(
-      (p): p is ToolCallUIPart => isToolPart(p) && p.state === "output-available" && prevToolCallIds.has(p.toolCallId),
-    );
-
-    // If there are matching tool results, merge the messages
-    if (currToolResults.length > 0) {
-      const newParts = [...(previous?.parts ?? [])] as Array<TextUIPart | ToolCallUIPart>;
-
-      for (const part of message.parts) {
-        if (isToolPart(part) && part.state === "output-available") {
-          const toolPart = part as ToolCallUIPart & { state: "output-available" };
-          const existingIdx = newParts.findIndex(
-            (p) => isToolPart(p) && p.toolCallId === toolPart.toolCallId && p.state === "input-available",
-          );
-          if (existingIdx !== -1) {
-            const existing = newParts[existingIdx] as ToolCallUIPart & { state: "input-available" };
-            newParts[existingIdx] = {
-              type: existing.type,
-              toolCallId: existing.toolCallId,
-              state: "output-available",
-              input: existing.input,
-              output: toolPart.output,
-            };
-            continue;
-          }
-        }
-        newParts.push(part as TextUIPart | ToolCallUIPart);
-      }
-
-      const newStatus = message.metadata?.status === "success" ? previous.metadata?.status : message.metadata?.status;
-
-      acc[acc.length - 1] = {
-        ...previous,
-        parts: newParts,
-        metadata: {
-          ...previous.metadata!,
-          status: newStatus ?? "success",
-        },
-      };
-      return acc;
-    }
-
-    acc.push(message);
-    return acc;
-  }, [] as UIMessage[]);
-}
-
 /**
  * Convert a content part to AI SDK UIMessagePart format
  */
@@ -330,12 +220,25 @@ function toUIMessagePart(part: unknown): TextUIPart | ToolCallUIPart {
 
   if (p.type === "tool-result") {
     const toolName = String(p.toolName ?? "");
+    // Handle output format: { type: "json" | "error-json", value: ... }
+    const output = p.output as { type?: string; value?: unknown } | undefined;
+    const isError = output?.type === "error-json";
+    if (isError) {
+      const errorValue = output?.value as { error?: string } | undefined;
+      return {
+        type: `tool-${toolName}`,
+        toolCallId: String(p.toolCallId ?? ""),
+        state: "output-error",
+        input: p.input ?? p.args ?? {},
+        errorText: errorValue?.error ?? "Unknown error",
+      };
+    }
     return {
       type: `tool-${toolName}`,
       toolCallId: String(p.toolCallId ?? ""),
       state: "output-available",
       input: p.input ?? p.args ?? {},
-      output: p.result,
+      output: output?.value ?? p.result,
     };
   }
 
@@ -367,7 +270,7 @@ function toUIMessagePart(part: unknown): TextUIPart | ToolCallUIPart {
  * Convert MessageDoc to UIMessage
  */
 function toUIMessage(message: MessageDoc, threadStatus: ThreadStatus | undefined): UIMessage {
-  const content = message.message.content;
+  const content = message.content;
 
   // Build parts array with proper AI SDK types
   const parts: Array<TextUIPart | ToolCallUIPart> = [];
@@ -381,12 +284,12 @@ function toUIMessage(message: MessageDoc, threadStatus: ThreadStatus | undefined
 
   // Determine message status
   let status: ThreadStatus | "success" = "success";
-  if (message.message.role === "assistant" && threadStatus) {
+  if (message.role === "assistant" && threadStatus) {
     status = threadStatus === "streaming" || threadStatus === "awaiting_tool_results" ? threadStatus : "success";
   }
 
   // AI SDK UIMessage doesn't have 'tool' role - tool messages should be merged into assistant
-  const role = message.message.role === "tool" ? "assistant" : message.message.role;
+  const role = message.role === "tool" ? "assistant" : message.role;
 
   return {
     id: message._id,
@@ -534,12 +437,12 @@ function getParts<T>(deltas: Array<StreamDelta>, startCursor: number): { parts: 
  * Update a UIMessage from TextStreamPart deltas
  */
 function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>): UIMessage {
-  const textParts = parts.filter((p): p is { type: "text-delta"; textDelta: string } => {
+  const textParts = parts.filter((p): p is { type: "text-delta"; text?: string; textDelta?: string } => {
     return typeof p === "object" && p !== null && (p as { type?: string }).type === "text-delta";
   });
 
   if (textParts.length > 0) {
-    const text = textParts.map((p) => p.textDelta).join("");
+    const text = textParts.map((p) => p.text ?? p.textDelta ?? "").join("");
     const textUIPart: TextUIPart = { type: "text", text, state: "streaming" };
     return {
       ...uiMessage,
@@ -547,35 +450,6 @@ function updateFromTextStreamParts(uiMessage: UIMessage, parts: Array<unknown>):
     };
   }
   return uiMessage;
-}
-
-/**
- * Dedupe messages by order, preferring non-pending messages
- */
-function dedupeMessages(messages: Array<UIMessage>, streamMessages: Array<UIMessage>): Array<UIMessage> {
-  const combined = sorted([...messages, ...streamMessages]);
-  return combined.reduce(
-    (msgs, msg) => {
-      const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
-      if (!last) {
-        return [msg];
-      }
-      const lastOrder = last.metadata?.order;
-      const msgOrder = msg.metadata?.order;
-      if (lastOrder !== msgOrder) {
-        msgs.push(msg);
-        return msgs;
-      }
-      // Same order - check if we should replace
-      const lastStatus = last.metadata?.status;
-      const msgStatus = msg.metadata?.status;
-      if ((lastStatus === "streaming" || lastStatus === "awaiting_tool_results") && msgStatus === "success") {
-        return [...msgs.slice(0, -1), msg];
-      }
-      return msgs;
-    },
-    [] as Array<UIMessage>,
-  );
 }
 
 /**
@@ -808,17 +682,13 @@ export function useMessagesWithStreaming(
     // Sort by order
     uiMessages.sort((a, b) => (a.metadata?.order ?? 0) - (b.metadata?.order ?? 0));
 
+    const dbMessageOrders = getDbMessageOrders(uiMessages);
+
     // Combine assistant/tool messages with the same order (merges tool-call with tool-result)
     const combinedMessages = combineUIMessages(uiMessages);
 
     // Filter out finished streaming messages only if there's a corresponding database message
-    const dbMessageOrders = new Set(combinedMessages.map((m) => m.metadata?.order));
-    const filteredStreamMessages = (streamMessages ?? []).filter((m) => {
-      // Keep streaming messages that are still actively streaming
-      if (m.metadata?.status === "streaming") return true;
-      // Keep finished streaming messages only if no database message exists yet
-      return !dbMessageOrders.has(m.metadata?.order);
-    });
+    const filteredStreamMessages = filterFinishedStreamMessages(streamMessages ?? [], dbMessageOrders);
 
     // Merge with streaming messages
     const merged = dedupeMessages(combinedMessages, filteredStreamMessages);
@@ -942,7 +812,7 @@ export function getMessageKey(message: UIMessage): string {
  * Get the order of a message from its metadata
  */
 export function getMessageOrder(message: UIMessage): number {
-  return message.metadata?.order ?? 0;
+  return getOrder(message) ?? 0;
 }
 
 /**
@@ -1016,11 +886,11 @@ export type UseAgentChatReturn = {
  * @example
  * ```tsx
  * const { messages, status, sendMessage, stop, resume, isRunning } = useAgentChat({
- *   listMessages: api.chat.listMessagesWithStreams,
- *   getThread: api.chat.getThread,
- *   sendMessage: api.chat.sendMessage,
- *   stopThread: api.chat.stopThread,
- *   resumeThread: api.chat.resumeThread,
+ *   listMessages: api.ai.chat.listChatMessagesWithStreams,
+ *   getThread: api.ai.chat.getChatThread,
+ *   sendMessage: api.ai.chat.sendChatMessage,
+ *   stopThread: api.ai.chat.stopChatThread,
+ *   resumeThread: api.ai.chat.resumeChatThread,
  *   threadId,
  * });
  *

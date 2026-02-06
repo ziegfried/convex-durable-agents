@@ -95,13 +95,14 @@ describe("messages", () => {
     });
     const message = await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "user", content: "Hello, world!" },
+      role: "user",
+      content: "Hello, world!",
     });
     expect(message).toBeDefined();
     expect(message.threadId).toBe(thread._id);
     expect(message.order).toBe(0);
-    expect(message.message.role).toBe("user");
-    expect(message.message.content).toBe("Hello, world!");
+    expect(message.role).toBe("user");
+    expect(message.content).toBe("Hello, world!");
   });
 
   test("list messages in order", async () => {
@@ -111,24 +112,27 @@ describe("messages", () => {
     });
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "user", content: "First" },
+      role: "user",
+      content: "First",
     });
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "assistant", content: "Second" },
+      role: "assistant",
+      content: "Second",
     });
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "user", content: "Third" },
+      role: "user",
+      content: "Third",
     });
     const messages = await t.query(api.messages.list, { threadId: thread._id });
     expect(messages.length).toBe(3);
     expect(messages[0].order).toBe(0);
     expect(messages[1].order).toBe(1);
     expect(messages[2].order).toBe(2);
-    expect(messages[0].message.content).toBe("First");
-    expect(messages[1].message.content).toBe("Second");
-    expect(messages[2].message.content).toBe("Third");
+    expect(messages[0].content).toBe("First");
+    expect(messages[1].content).toBe("Second");
+    expect(messages[2].content).toBe("Third");
   });
 
   test("message with array content", async () => {
@@ -138,20 +142,18 @@ describe("messages", () => {
     });
     const message = await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: {
-        role: "assistant",
-        content: [
-          { type: "text", text: "Hello" },
-          {
-            type: "tool-call",
-            toolCallId: "call-1",
-            toolName: "test",
-            input: {},
-          },
-        ],
-      },
+      role: "assistant",
+      content: [
+        { type: "text", text: "Hello" },
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "test",
+          input: {},
+        },
+      ],
     });
-    expect(message.message.content).toHaveLength(2);
+    expect(message.content).toHaveLength(2);
   });
 });
 
@@ -285,26 +287,22 @@ describe("agent flow", () => {
     // Add user message
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: {
-        role: "user",
-        content: "What's the weather in San Francisco?",
-      },
+      role: "user",
+      content: "What's the weather in San Francisco?",
     });
 
     // Simulate assistant response with tool call
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: {
-        role: "assistant",
-        content: [
-          {
-            type: "tool-call",
-            toolCallId: "weather-call-sf",
-            toolName: "get_weather",
-            input: { location: "San Francisco" },
-          },
-        ],
-      },
+      role: "assistant",
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "weather-call-sf",
+          toolName: "get_weather",
+          input: { location: "San Francisco" },
+        },
+      ],
     });
 
     // Update thread status to awaiting tool results
@@ -330,29 +328,25 @@ describe("agent flow", () => {
     // Add tool result message
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: "weather-call-sf",
-            toolName: "get_weather",
-            output: {
-              type: "json",
-              value: { weather: "sunny", temperature: 72 },
-            },
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "weather-call-sf",
+          toolName: "get_weather",
+          output: {
+            type: "json",
+            value: { weather: "sunny", temperature: 72 },
           },
-        ],
-      },
+        },
+      ],
     });
 
     // Add final assistant response
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: {
-        role: "assistant",
-        content: "The weather in San Francisco is sunny with a temperature of 72°F.",
-      },
+      role: "assistant",
+      content: "The weather in San Francisco is sunny with a temperature of 72°F.",
     });
 
     // Mark as completed
@@ -369,10 +363,10 @@ describe("agent flow", () => {
 
     const messages = await t.query(api.messages.list, { threadId: thread._id });
     expect(messages.length).toBe(4);
-    expect(messages[0].message.role).toBe("user");
-    expect(messages[1].message.role).toBe("assistant");
-    expect(messages[2].message.role).toBe("tool");
-    expect(messages[3].message.role).toBe("assistant");
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+    expect(messages[2].role).toBe("tool");
+    expect(messages[3].role).toBe("assistant");
   });
 
   test("thread stop signal", async () => {
@@ -408,7 +402,8 @@ describe("agent flow", () => {
     // Add a user message
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "user", content: "Continue please" },
+      role: "user",
+      content: "Continue please",
     });
 
     // Resume
@@ -429,11 +424,13 @@ describe("agent flow", () => {
     // Add messages
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "user", content: "Hello" },
+      role: "user",
+      content: "Hello",
     });
     await t.mutation(api.messages.add, {
       threadId: thread._id,
-      message: { role: "assistant", content: "Hi there!" },
+      role: "assistant",
+      content: "Hi there!",
     });
 
     // Add tool call

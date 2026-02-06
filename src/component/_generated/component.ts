@@ -77,20 +77,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         {
-          message: {
-            content: string | Array<any>;
-            role: "system" | "user" | "assistant" | "tool";
-          };
+          content: string | Array<any>;
+          role: "system" | "user" | "assistant" | "tool";
           threadId: string;
         },
         {
           _creationTime: number;
           _id: string;
-          message: {
-            content: string | Array<any>;
-            role: "system" | "user" | "assistant" | "tool";
-          };
+          content: string | Array<any>;
           order: number;
+          role: "system" | "user" | "assistant" | "tool";
           threadId: string;
         },
         Name
@@ -98,15 +94,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       list: FunctionReference<
         "query",
         "internal",
-        { threadId: string },
+        { excludeSystemMessages?: boolean; threadId: string },
         Array<{
           _creationTime: number;
           _id: string;
-          message: {
-            content: string | Array<any>;
-            role: "system" | "user" | "assistant" | "tool";
-          };
+          content: string | Array<any>;
           order: number;
+          role: "system" | "user" | "assistant" | "tool";
           threadId: string;
         }>,
         Name
@@ -354,6 +348,22 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           toolCallId: string;
           toolName: string;
         } | null,
+        Name
+      >;
+      list: FunctionReference<
+        "query",
+        "internal",
+        { threadId: string },
+        Array<{
+          _creationTime: number;
+          _id: string;
+          args: any;
+          error?: string;
+          result?: any;
+          threadId: string;
+          toolCallId: string;
+          toolName: string;
+        }>,
         Name
       >;
       listPending: FunctionReference<

@@ -112,7 +112,7 @@ export const resume = mutation({
         .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
         .order("desc")
         .first();
-      if (lastMessage?.message.role === "user") {
+      if (lastMessage?.role === "user") {
         const previousStatus = thread.status;
         await ctx.db.patch(args.threadId, {
           status: "streaming",

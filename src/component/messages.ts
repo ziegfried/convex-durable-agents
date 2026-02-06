@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { mutation, query } from "./_generated/server.js";
-import { vMessage } from "./schema.js";
+import { vMessageContent, vMessageRole } from "./schema.js";
 
 // Public message shape
 export type MessageDoc = {
@@ -9,7 +9,8 @@ export type MessageDoc = {
   _creationTime: number;
   threadId: Id<"threads">;
   order: number;
-  message: Doc<"messages">["message"];
+  role: Doc<"messages">["role"];
+  content: Doc<"messages">["content"];
 };
 
 function publicMessage(message: Doc<"messages">): MessageDoc {
@@ -18,7 +19,8 @@ function publicMessage(message: Doc<"messages">): MessageDoc {
     _creationTime: message._creationTime,
     threadId: message.threadId,
     order: message.order,
-    message: message.message,
+    role: message.role,
+    content: message.content,
   };
 }
 
@@ -28,13 +30,15 @@ export const vMessageDoc = v.object({
   _creationTime: v.number(),
   threadId: v.id("threads"),
   order: v.number(),
-  message: vMessage,
+  role: vMessageRole,
+  content: vMessageContent,
 });
 
 export const add = mutation({
   args: {
     threadId: v.id("threads"),
-    message: vMessage,
+    role: vMessageRole,
+    content: vMessageContent,
   },
   returns: vMessageDoc,
   handler: async (ctx, args) => {
@@ -50,7 +54,8 @@ export const add = mutation({
     const messageId = await ctx.db.insert("messages", {
       threadId: args.threadId,
       order,
-      message: args.message,
+      role: args.role,
+      content: args.content,
     });
 
     const message = await ctx.db.get(messageId);
@@ -61,14 +66,22 @@ export const add = mutation({
 export const list = query({
   args: {
     threadId: v.id("threads"),
+    excludeSystemMessages: v.optional(v.boolean()),
   },
   returns: v.array(vMessageDoc),
   handler: async (ctx, args) => {
-    const messages = await ctx.db
-      .query("messages")
-      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
-      .order("asc")
-      .collect();
+    const messages = await (args.excludeSystemMessages
+      ? ctx.db
+          .query("messages")
+          .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+          .order("asc")
+          .filter((q) => q.neq(q.field("role"), "system"))
+          .collect()
+      : ctx.db
+          .query("messages")
+          .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+          .order("asc")
+          .collect());
 
     return messages.map(publicMessage);
   },

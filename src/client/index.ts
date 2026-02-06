@@ -16,10 +16,11 @@ import {
   mutationGeneric,
   queryGeneric,
 } from "convex/server";
-import { v } from "convex/values";
+import { type Infer, v } from "convex/values";
 import { z } from "zod";
 import type { ComponentApi } from "../component/_generated/component.js";
 import type { Id } from "../component/_generated/dataModel.js";
+import { vMessageContent, vMessageRole } from "../component/schema.js";
 
 // ============================================================================
 // Types
@@ -79,22 +80,9 @@ export type MessageDoc = {
   _creationTime: number;
   threadId: string;
   order: number;
-  message: {
-    role: "system" | "user" | "assistant" | "tool";
-    content: string | Array<unknown>;
-  };
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | Array<unknown>;
 };
-
-const vClientMessageDoc = v.object({
-  _id: v.string(),
-  _creationTime: v.number(),
-  threadId: v.string(),
-  order: v.number(),
-  message: v.object({
-    role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant"), v.literal("tool")),
-    content: v.union(v.string(), v.array(v.any())),
-  }),
-});
 
 // Sync durable tool definition - handler returns the result directly
 export type SyncTool<INPUT = unknown, OUTPUT = unknown> = {
@@ -184,6 +172,72 @@ const DEFAULT_STREAMING_OPTIONS: StreamingOptions = {
   throttleMs: 250,
   returnImmediately: false,
 };
+
+// ============================================================================
+// Usage Tracking
+// ============================================================================
+
+export type TurnUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+};
+
+export type UsageCallbackArgs = {
+  threadId: string;
+  streamId: string;
+  usage: TurnUsage;
+};
+
+export type UsageHandler = (ctx: ActionCtx, args: UsageCallbackArgs) => void | Promise<void>;
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeTurnUsage(usage: unknown): TurnUsage | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+
+  const inputTokens = numberOrUndefined(u.inputTokens ?? u.promptTokens ?? u.prompt_tokens ?? u.input_tokens);
+  const outputTokens = numberOrUndefined(
+    u.outputTokens ?? u.completionTokens ?? u.completion_tokens ?? u.output_tokens,
+  );
+  const totalTokens =
+    numberOrUndefined(u.totalTokens ?? u.total_tokens) ??
+    (inputTokens != null && outputTokens != null ? inputTokens + outputTokens : undefined);
+
+  if (inputTokens == null || outputTokens == null || totalTokens == null) return null;
+
+  const reasoningTokens = numberOrUndefined(u.reasoningTokens ?? u.reasoning_tokens);
+  const cachedInputTokens = numberOrUndefined(
+    u.cachedInputTokens ?? u.cached_input_tokens ?? u.cacheReadInputTokens ?? u.cache_read_input_tokens,
+  );
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    reasoningTokens,
+    cachedInputTokens,
+  };
+}
+
+async function getStreamTextUsage(result: unknown): Promise<TurnUsage | null> {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  if (!("usage" in r)) return null;
+  const rawUsage = r.usage;
+  try {
+    const resolvedUsage =
+      rawUsage && typeof rawUsage === "object" && "then" in (rawUsage as any) ? await (rawUsage as any) : rawUsage;
+    return normalizeTurnUsage(resolvedUsage);
+  } catch {
+    return null;
+  }
+}
 
 // ============================================================================
 // Serialization Helpers
@@ -410,7 +464,10 @@ export type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" |
   tools: Record<string, DurableTool<unknown, unknown>>;
   /** Optional: Save streaming deltas to the database for real-time client updates */
   saveStreamDeltas?: boolean | StreamingOptions;
+  /** Optional: Transform the messages before sending them to the model */
   transformMessages?: (messages: ModelMessage[]) => ModelMessage[];
+  /** Optional: Callback invoked once per stream handler turn with token usage (best-effort). */
+  usageHandler?: UsageHandler;
   /** Optional: Function to enqueue actions via workpool (used for both stream handler and tools unless overridden) */
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Override workpool for tool execution only */
@@ -444,7 +501,13 @@ export function streamHandlerAction(
       // Resolve the args - either directly or by calling the factory function
       const resolvedArgs =
         typeof argsOrFactory === "function" ? await argsOrFactory(ctx as ActionCtx, args.threadId) : argsOrFactory;
-      const { tools, saveStreamDeltas, transformMessages = (messages) => messages, ...streamTextArgs } = resolvedArgs;
+      const {
+        tools,
+        saveStreamDeltas,
+        transformMessages = (messages) => messages,
+        usageHandler,
+        ...streamTextArgs
+      } = resolvedArgs;
 
       // Get the current message order for streaming
       const messages = await ctx.runQuery(component.messages.list, {
@@ -475,7 +538,9 @@ export function streamHandlerAction(
 
       try {
         const toolDefinitions = await buildToolDefinitions(tools);
-        const modelMessages = transformMessages(messages.map((m) => m.message as ModelMessage));
+        const modelMessages = transformMessages(
+          messages.map((m) => ({ role: m.role, content: m.content }) as ModelMessage),
+        );
 
         // Build tool definitions for AI SDK (without execute functions)
         const handlerlessTools: Record<string, Tool> = {};
@@ -560,14 +625,25 @@ export function streamHandlerAction(
             await streamer.finish();
           }
 
+          const usage = await getStreamTextUsage(result);
+          if (usage && usageHandler) {
+            try {
+              await usageHandler(ctx as ActionCtx, {
+                threadId: args.threadId,
+                streamId: args.streamId,
+                usage,
+              });
+            } catch (e) {
+              console.error("usageHandler callback failed:", e);
+            }
+          }
+
           // Save the assistant message if we have content
           if (assistantContent.length > 0) {
             await ctx.runMutation(component.messages.add, {
               threadId: args.threadId,
-              message: {
-                role: "assistant",
-                content: assistantContent,
-              },
+              role: "assistant",
+              content: assistantContent,
             });
           }
 
@@ -678,6 +754,11 @@ export type MessagesWithStreamsResult = {
 export type AgentApi<V extends FunctionVisibility = "public"> = {
   createThread: RegisteredMutation<V, { prompt?: string }, string>;
   sendMessage: RegisteredMutation<V, { threadId: string; prompt: string }, null>;
+  addMessage: RegisteredMutation<
+    V,
+    { threadId: string; role: Infer<typeof vMessageRole>; content: Infer<typeof vMessageContent> },
+    null
+  >;
   resumeThread: RegisteredMutation<V, { threadId: string; prompt?: string }, null>;
   stopThread: RegisteredMutation<V, { threadId: string }, null>;
   getThread: RegisteredQuery<V, { threadId: string }, ThreadDoc | null>;
@@ -698,6 +779,8 @@ export type AgentApiOptions = {
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Callback invoked when thread status changes */
   onStatusChange?: FunctionReference<"mutation", "internal">;
+  /** Optional: Whether to exclude system messages from message lists */
+  excludeSystemMessages?: boolean;
 };
 
 async function serializeThreadOptions(options?: AgentApiOptions): Promise<{
@@ -739,6 +822,8 @@ function createAgentApi(
     createThread: mutation({
       args: {
         prompt: v.optional(v.string()),
+        messages: v.optional(v.array(v.object({ role: vMessageRole, content: vMessageContent }))),
+        autoStart: v.optional(v.boolean()),
       },
       returns: v.string(),
       handler: async (ctx, args) => {
@@ -753,15 +838,25 @@ function createAgentApi(
           ...serializedOptions,
         });
 
+        if (args.messages) {
+          for (const message of args.messages) {
+            await ctx.runMutation(component.messages.add, {
+              threadId: thread._id as Id<"threads">,
+              role: message.role,
+              content: message.content,
+            });
+          }
+        }
+
         if (args.prompt) {
           await ctx.runMutation(component.messages.add, {
             threadId: thread._id as Id<"threads">,
-            message: {
-              role: "user",
-              content: args.prompt,
-            },
+            role: "user",
+            content: args.prompt,
           });
+        }
 
+        if (args.autoStart || (args.autoStart == null && args.prompt != null)) {
           await ctx.runMutation(component.agent.continueStream, {
             threadId: thread._id as Id<"threads">,
           });
@@ -781,10 +876,8 @@ function createAgentApi(
         await checkThreadIsIdle(component, ctx, args.threadId as Id<"threads">);
         await ctx.runMutation(component.messages.add, {
           threadId: args.threadId,
-          message: {
-            role: "user",
-            content: args.prompt,
-          },
+          role: "user",
+          content: args.prompt,
         });
         await ctx.runMutation(component.threads.resume, {
           threadId: args.threadId,
@@ -793,6 +886,23 @@ function createAgentApi(
           threadId: args.threadId,
         });
         return null;
+      },
+    }),
+    addMessage: mutation({
+      args: {
+        threadId: v.string(),
+        role: vMessageRole,
+        content: vMessageContent,
+      },
+      returns: v.union(v.string(), v.null()),
+      handler: async (ctx, args) => {
+        if (authorize) await authorize(ctx, args.threadId);
+        const msgId = await ctx.runMutation(component.messages.add, {
+          threadId: args.threadId,
+          role: args.role,
+          content: args.content,
+        });
+        return msgId?._id ?? null;
       },
     }),
     resumeThread: mutation({
@@ -809,10 +919,8 @@ function createAgentApi(
         if (args.prompt) {
           await ctx.runMutation(component.messages.add, {
             threadId,
-            message: {
-              role: "user",
-              content: args.prompt,
-            },
+            role: "user",
+            content: args.prompt,
           });
         }
         await ctx.runMutation(component.threads.setStopSignal, {
@@ -855,11 +963,11 @@ function createAgentApi(
       args: {
         threadId: v.string(),
       },
-      returns: v.array(vClientMessageDoc),
       handler: async (ctx, args): Promise<MessageDoc[]> => {
         if (authorize) await authorize(ctx, args.threadId);
         return ctx.runQuery(component.messages.list, {
           threadId: args.threadId as Id<"threads">,
+          excludeSystemMessages: options?.excludeSystemMessages ?? true,
         });
       },
     }),
@@ -908,6 +1016,7 @@ function createAgentApi(
         if (authorize) await authorize(ctx, args.threadId);
         const messages = await ctx.runQuery(component.messages.list, {
           threadId: args.threadId,
+          excludeSystemMessages: options?.excludeSystemMessages ?? true,
         });
 
         if (!args.streamArgs) {

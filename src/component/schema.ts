@@ -16,6 +16,8 @@ export const vMessageContent = v.union(
   v.array(v.any()), // AI SDK content parts (text, tool-call, tool-result, etc.)
 );
 
+export const vMessageRole = v.union(v.literal("system"), v.literal("user"), v.literal("assistant"), v.literal("tool"));
+
 // AI SDK message format
 export const vMessage = v.object({
   role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant"), v.literal("tool")),
@@ -61,8 +63,11 @@ const schema = defineSchema({
   messages: defineTable({
     threadId: v.id("threads"),
     order: v.number(),
-    message: vMessage,
-  }).index("by_thread", ["threadId", "order"]),
+    role: vMessageRole,
+    content: vMessageContent,
+  })
+    .index("by_thread", ["threadId", "order"])
+    .index("by_thread_role", ["threadId", "role"]),
 
   // Track pending tool executions
   tool_calls: defineTable({

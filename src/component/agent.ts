@@ -210,6 +210,7 @@ export const executeToolCall = internalAction({
       // For now, we'll use ctx.runAction with a dynamic reference
       // This requires the handler to be a proper function reference string
       const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
+
       result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolArgs as Record<string, unknown>);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -231,17 +232,15 @@ export const executeToolCall = internalAction({
     // Add tool result message
     await ctx.runMutation(api.messages.add, {
       threadId: args.threadId,
-      message: {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: args.toolCallId,
-            toolName: toolCall.toolName,
-            output: error ? { type: "error-json", value: { error } } : { type: "json", value: result },
-          },
-        ],
-      },
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: args.toolCallId,
+          toolName: toolCall.toolName,
+          output: error ? { type: "error-json", value: { error } } : { type: "json", value: result },
+        },
+      ],
     });
 
     // Check if all tool calls are complete
@@ -360,17 +359,15 @@ export const addToolResult = mutation({
     // Add tool result message
     await ctx.runMutation(api.messages.add, {
       threadId: threadId,
-      message: {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: args.toolCallId,
-            toolName: toolCall.toolName,
-            output: { type: "json", value: args.result },
-          },
-        ],
-      },
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: args.toolCallId,
+          toolName: toolCall.toolName,
+          output: { type: "json", value: args.result },
+        },
+      ],
     });
 
     // Check if all tool calls are complete and continue if so
@@ -416,17 +413,15 @@ export const addToolError = mutation({
     // Add tool result message with error
     await ctx.runMutation(api.messages.add, {
       threadId: threadId,
-      message: {
-        role: "tool",
-        content: [
-          {
-            type: "tool-result",
-            toolCallId: args.toolCallId,
-            toolName: toolCall.toolName,
-            output: { type: "error-json", value: { error: args.error } },
-          },
-        ],
-      },
+      role: "tool",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: args.toolCallId,
+          toolName: toolCall.toolName,
+          output: { type: "error-json", value: { error: args.error } },
+        },
+      ],
     });
 
     // Check if all tool calls are complete and continue if so

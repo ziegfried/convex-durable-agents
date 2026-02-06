@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import "./index.css";
 
-const address = import.meta.env.VITE_CONVEX_URL;
+const address = import.meta.env.VITE_CONVEX_URL!;
 
 const convex = new ConvexReactClient(address);
 
