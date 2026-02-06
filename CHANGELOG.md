@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+- Simplified message table (breaking change)
+- New usageHandler callback
+- API now omits system messages by default, use `excludeSystemMessages: false` to revert to old behavior (breaking change)
+
 ## 0.1.7
 
 - Minor tweaks to conform with convex component best practices

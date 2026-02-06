@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
     "ignoreUnknown": false,
-    "ignore": ["**/dist", "**/_generated"]
+    "includes": ["!**/dist", "!**/_generated"]
   },
   "formatter": {
     "enabled": true,
@@ -12,9 +12,7 @@
   "linter": {
     "enabled": false
   },
-  "organizeImports": {
-    "enabled": true
-  },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
   "javascript": {
     "formatter": {
       "quoteStyle": "double"
