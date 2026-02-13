@@ -19,6 +19,20 @@ const vUIMessage = vUIMessageBase.extend({
   id: v.string(),
 });
 
+type ToolInputAvailablePart = {
+  toolCallId: string;
+  state: "input-available";
+  callProviderMetadata?: unknown;
+};
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function isToolInputAvailablePart(part: unknown): part is ToolInputAvailablePart {
+  return isObjectLike(part) && typeof part.toolCallId === "string" && part.state === "input-available";
+}
+
 // Message doc validator for return types
 export const vMessageDoc = vUIMessage.extend({
   _id: v.string(),
@@ -102,8 +116,8 @@ export const applyToolOutcomes = mutation({
       .order("asc")) {
       let modified = false;
       const parts: UIMessagePart<any, any>[] = [];
-      for (const part of message.parts as UIMessagePart<any, any>[]) {
-        if ("toolCallId" in part && part.state === "input-available") {
+      for (const part of message.parts as unknown[]) {
+        if (isToolInputAvailablePart(part)) {
           const toolCall = await ctx.db
             .query("tool_calls")
             .withIndex("by_thread_tool_call_id", (q) =>
@@ -119,7 +133,7 @@ export const applyToolOutcomes = mutation({
             }
           }
         }
-        parts.push(part);
+        parts.push(part as UIMessagePart<any, any>);
       }
       if (modified) {
         await ctx.db.patch(message._id, { parts });

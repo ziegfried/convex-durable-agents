@@ -60,11 +60,30 @@ export const continueStream = mutation({
 
     // Check stop signal
     if (thread.stopSignal) {
-      logger.debug("Stop signal detected, setting status to stopped");
-      await ctx.runMutation(api.threads.setStatus, {
-        threadId: args.threadId,
+      const previousStatus = thread.status;
+      const activeStreamId = thread.activeStream ?? null;
+      logger.debug(
+        `Stop signal detected, transitioning thread to stopped and clearing active stream=${activeStreamId ?? "none"}`,
+      );
+      await ctx.db.patch(thread._id, {
         status: "stopped",
+        activeStream: null,
+        continue: false,
       });
+      if (thread.onStatusChangeHandle && previousStatus !== "stopped") {
+        await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
+          threadId: args.threadId,
+          status: "stopped",
+          previousStatus,
+        });
+      }
+      if (activeStreamId) {
+        const activeStream = await ctx.db.get(activeStreamId);
+        if (activeStream) {
+          logger.debug(`Cancelling active stream=${activeStreamId} due to stop signal`);
+          await cancelStream(ctx, activeStream, "stopSignal");
+        }
+      }
       return null;
     }
 
@@ -141,6 +160,8 @@ export const tryContinueAllThreads = action({
   args: {},
   returns: v.null(),
   handler: async (ctx) => {
+    // Manual/admin recovery entrypoint: intentionally unscheduled by default.
+    // Invoke this action after outages/deploy interruptions to re-drive incomplete threads.
     const threads = await ctx.runQuery(api.threads.listIncomplete);
     for (const threadId of threads) {
       await ctx.runMutation(api.agent.continueStream, {

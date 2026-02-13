@@ -176,16 +176,20 @@ export const setResult = mutation({
     id: v.id("tool_calls"),
     result: v.any(),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const toolCall = await ctx.db.get(args.id);
     if (!toolCall) {
       throw new Error(`Tool call ${args.id} not found`);
     }
+    if (toolCall.status !== "pending") {
+      logger.warn(`setResult: skipping overwrite for callId=${toolCall.toolCallId}, currentStatus=${toolCall.status}`);
+      return false;
+    }
     logger.debug(`setResult: callId=${toolCall.toolCallId}, tool=${toolCall.toolName}`);
     await cleanupTimeoutFn(ctx, toolCall);
     await ctx.db.patch(args.id, { result: args.result, status: "completed" });
-    return null;
+    return true;
   },
 });
 
@@ -194,16 +198,20 @@ export const setError = mutation({
     id: v.id("tool_calls"),
     error: v.string(),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const toolCall = await ctx.db.get(args.id);
     if (!toolCall) {
       throw new Error(`Tool call ${args.id} not found`);
     }
+    if (toolCall.status !== "pending") {
+      logger.warn(`setError: skipping overwrite for callId=${toolCall.toolCallId}, currentStatus=${toolCall.status}`);
+      return false;
+    }
     logger.debug(`setError: callId=${toolCall.toolCallId}, tool=${toolCall.toolName}, error=${args.error}`);
     await cleanupTimeoutFn(ctx, toolCall);
     await ctx.db.patch(args.id, { error: args.error, status: "failed", callbackLastError: args.error });
-    return null;
+    return true;
   },
 });
 
@@ -605,11 +613,32 @@ export const onToolComplete = internalMutation({
 
     // Check stop signal
     if (thread.stopSignal) {
-      logger.debug("onToolComplete: stop signal detected, setting status to stopped");
-      await ctx.runMutation(api.threads.setStatus, {
-        threadId: args.threadId,
+      const previousStatus = thread.status;
+      const activeStreamId = thread.activeStream ?? null;
+      logger.debug(
+        `onToolComplete: stop signal detected, transitioning thread to stopped and clearing active stream=${activeStreamId ?? "none"}`,
+      );
+      await ctx.db.patch(args.threadId, {
         status: "stopped",
+        activeStream: null,
+        continue: false,
       });
+      if (thread.onStatusChangeHandle && previousStatus !== "stopped") {
+        await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
+          threadId: args.threadId,
+          status: "stopped",
+          previousStatus,
+        });
+      }
+      if (activeStreamId) {
+        const activeStream = await ctx.db.get(activeStreamId);
+        if (activeStream && (activeStream.state.kind === "pending" || activeStream.state.kind === "streaming")) {
+          await ctx.runMutation(api.streams.abort, {
+            streamId: activeStreamId,
+            reason: "stopSignal",
+          });
+        }
+      }
       return null;
     }
 
@@ -686,18 +715,22 @@ export const addToolResult = mutation({
     }
 
     const threadId = toolCall.threadId;
-    // Check if already completed
     if (toolCall.status !== "pending") {
-      throw new Error(`Tool call ${args.toolCallId} has already been completed`);
+      logger.warn(`addToolResult: ignoring duplicate completion for callId=${args.toolCallId}`);
+      return null;
     }
 
     logger.debug(`addToolResult: callId=${args.toolCallId}, tool=${toolCall.toolName}, thread=${threadId}`);
 
     // Update the tool call record with the result
-    await ctx.runMutation(api.tool_calls.setResult, {
+    const transitioned = await ctx.runMutation(api.tool_calls.setResult, {
       id: toolCall._id,
       result: args.result,
     });
+    if (!transitioned) {
+      logger.warn(`addToolResult: skipped duplicate completion race for callId=${args.toolCallId}`);
+      return null;
+    }
 
     if (toolCall.saveDelta) {
       logger.debug(`addToolResult: inserting tool outcome delta for callId=${args.toolCallId}`);
@@ -745,9 +778,9 @@ export const addToolError = mutation({
 
     const threadId = toolCall.threadId;
 
-    // Check if already completed
     if (toolCall.status !== "pending") {
-      throw new Error(`Tool call ${args.toolCallId} has already been completed`);
+      logger.warn(`addToolError: ignoring duplicate completion for callId=${args.toolCallId}`);
+      return null;
     }
 
     logger.debug(
@@ -755,10 +788,14 @@ export const addToolError = mutation({
     );
 
     // Update the tool call record with the error
-    await ctx.runMutation(api.tool_calls.setError, {
+    const transitioned = await ctx.runMutation(api.tool_calls.setError, {
       id: toolCall._id,
       error: args.error,
     });
+    if (!transitioned) {
+      logger.warn(`addToolError: skipped duplicate completion race for callId=${args.toolCallId}`);
+      return null;
+    }
 
     if (toolCall.saveDelta) {
       logger.debug(`addToolError: inserting tool outcome delta for callId=${args.toolCallId}`);

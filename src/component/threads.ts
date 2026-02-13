@@ -397,6 +397,12 @@ export const remove = mutation({
       .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
       .collect();
     for (const toolCall of toolCalls) {
+      if (toolCall.timeoutFnId) {
+        const timeoutFn = await ctx.db.system.get(toolCall.timeoutFnId);
+        if (timeoutFn?.state.kind === "pending") {
+          await ctx.scheduler.cancel(toolCall.timeoutFnId);
+        }
+      }
       await ctx.db.delete(toolCall._id);
     }
     // Delete the thread

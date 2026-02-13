@@ -178,7 +178,7 @@ export function streamHandlerAction(
       });
       if (stream == null) {
         logger.debug("Stream lock acquisition failed, exiting handler");
-        return;
+        return null;
       }
       logger.debug(`Stream lock acquired (seq=${stream.seq})`);
       streamer.startHeartbeat();
@@ -212,178 +212,178 @@ export function streamHandlerAction(
           });
         }
 
-        try {
-          const uiMessages = messages.map((m) => messageDocToUIMessage(m));
-          logger.debug(`Converted ${uiMessages.length} UI messages, transforming to model messages...`);
-          const modelMessages = transformMessages(
-            await convertToModelMessages(uiMessages, { tools: handlerlessTools }),
-          );
-          logger.debug(`Model messages ready (${modelMessages.length} messages), starting streamText...`);
-          const result = streamText({
-            ...streamTextArgs,
-            prompt: undefined,
-            messages: modelMessages,
-            tools: handlerlessTools,
-          });
+        const uiMessages = messages.map((m) => messageDocToUIMessage(m));
+        logger.debug(`Converted ${uiMessages.length} UI messages, transforming to model messages...`);
+        const modelMessages = transformMessages(await convertToModelMessages(uiMessages, { tools: handlerlessTools }));
+        logger.debug(`Model messages ready (${modelMessages.length} messages), starting streamText...`);
+        const result = streamText({
+          ...streamTextArgs,
+          prompt: undefined,
+          messages: modelMessages,
+          tools: handlerlessTools,
+        });
 
-          let finishReason: string | undefined;
-          let responseMessage: UIMessage | undefined;
+        let finishReason: string | undefined;
+        let responseMessage: UIMessage | undefined;
 
-          const uiMessageStream = result.toUIMessageStream({
-            generateMessageId: generateId,
-            originalMessages: uiMessages,
-            onFinish: ({ responseMessage: finalResponseMessage }) => {
-              responseMessage = finalResponseMessage;
-            },
-          });
+        const uiMessageStream = result.toUIMessageStream({
+          generateMessageId: generateId,
+          originalMessages: uiMessages,
+          onFinish: ({ responseMessage: finalResponseMessage }) => {
+            responseMessage = finalResponseMessage;
+          },
+        });
 
-          let msgId: string | undefined;
-          if (messages.length > 0) {
-            msgId = messages[messages.length - 1]!.id;
-            logger.debug(`Setting initial message ID from last message: ${msgId}`);
-            await streamer.setMessageId(msgId, true);
-          }
-          let toolCallCount = 0;
-          logger.debug("Processing UI message stream parts...");
-          for await (const part of uiMessageStream) {
-            if (part.type === "start") {
-              msgId = part.messageId;
-              logger.debug(`Stream part: start (messageId=${msgId})`);
-              await streamer.setMessageId(
-                msgId,
-                messages?.some((m) => m.id === msgId),
-              );
-            }
-            await streamer.process(part);
-
-            switch (part.type) {
-              case "tool-input-available":
-                toolCallCount++;
-                logger.debug(
-                  `Stream part: tool-input-available (tool=${part.toolName}, callId=${part.toolCallId}, count=${toolCallCount})`,
-                );
-                await scheduleToolCall(
-                  ctx,
-                  {
-                    toolCallId: part.toolCallId,
-                    toolName: part.toolName,
-                    args: part.input,
-                    msgId: msgId,
-                    threadId: args.threadId,
-                    saveDelta: !!saveStreamDeltas,
-                  },
-                  toolDefinitions,
-                  logger,
-                );
-                break;
-              case "finish":
-                finishReason = part.finishReason;
-                logger.debug(`Stream part: finish (reason=${finishReason})`);
-                break;
-              case "error":
-                logger.error("Stream error:", part.errorText);
-                throw new Error(`Stream error: ${part.errorText}`);
-              default:
-                // Ignore other part types
-                break;
-            }
-          }
-          logger.debug(`Stream iteration complete (toolCallCount=${toolCallCount}, finishReason=${finishReason})`);
-
-          // Finish the delta stream
-          logger.debug("Finishing delta stream...");
-          await streamer.finish();
-
-          if (!responseMessage) {
-            throw new Error("No response message");
-          }
-          logger.debug(
-            `Response message received (role=${responseMessage.role}, parts=${responseMessage.parts.length})`,
-          );
-
-          const providerMetadata = await getStreamTextProviderMetadata(result);
-          const usage = await getStreamTextUsage(result, providerMetadata);
-          logger.debug(`Usage info: ${usage ? JSON.stringify(usage) : "none"}`);
-          if (usage && usageHandlerCallback) {
-            logger.debug("Invoking onMessageComplete callback...");
-            try {
-              await usageHandlerCallback(ctx as ActionCtx, {
-                threadId: args.threadId,
-                streamId: args.streamId,
-                message: responseMessage,
-                usage,
-                providerMetadata: serializeForConvex(providerMetadata),
-              });
-              logger.debug("onMessageComplete callback succeeded");
-            } catch (e) {
-              console.error("endOfTurnCallback callback failed:", e);
-            }
-          }
-
-          // Save the assistant response if we have one
-          if (responseMessage && responseMessage.role === "assistant" && responseMessage.parts.length > 0) {
-            logger.debug(
-              `Saving assistant response (id=${responseMessage.id}, parts=${responseMessage.parts.length}, seq=${stream.seq})`,
+        let msgId: string | undefined;
+        if (messages.length > 0) {
+          msgId = messages[messages.length - 1]!.id;
+          logger.debug(`Setting initial message ID from last message: ${msgId}`);
+          await streamer.setMessageId(msgId, true);
+        }
+        let toolCallCount = 0;
+        logger.debug("Processing UI message stream parts...");
+        for await (const part of uiMessageStream) {
+          if (part.type === "start") {
+            msgId = part.messageId;
+            logger.debug(`Stream part: start (messageId=${msgId})`);
+            await streamer.setMessageId(
+              msgId,
+              messages?.some((m) => m.id === msgId),
             );
-            await ctx.runMutation(component.messages.add, {
-              threadId: args.threadId,
-              msg: responseMessage,
-              overwrite: true,
-              committedSeq: stream.seq,
-            });
-            logger.debug("Applying tool outcomes after saving response...");
-            await ctx.runMutation(component.messages.applyToolOutcomes, {
-              threadId: args.threadId,
-            });
           }
+          await streamer.process(part);
 
-          // Handle tool calls
-          if (toolCallCount > 0) {
-            logger.debug(`Setting thread status to awaiting_tool_results (${toolCallCount} tool calls)`);
-            finalStatus = "awaiting_tool_results";
-          } else if (finishReason && finishReason !== "tool-calls") {
-            logger.debug(`No tool calls, setting thread status to completed (finishReason=${finishReason})`);
-            finalStatus = "completed";
-            if (turnCompleteHandlerCallback) {
-              logger.debug("Invoking onTurnComplete callback...");
-              try {
-                await turnCompleteHandlerCallback(ctx as ActionCtx, {
+          switch (part.type) {
+            case "tool-input-available":
+              toolCallCount++;
+              logger.debug(
+                `Stream part: tool-input-available (tool=${part.toolName}, callId=${part.toolCallId}, count=${toolCallCount})`,
+              );
+              await scheduleToolCall(
+                ctx,
+                {
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  args: part.input,
+                  msgId: msgId,
                   threadId: args.threadId,
-                  streamId: args.streamId,
-                  providerMetadata: serializeForConvex(providerMetadata),
-                  finishReason,
-                });
-                logger.debug("onTurnComplete callback succeeded");
-              } catch (e) {
-                console.error("turnCompleteHandler callback failed:", e);
-              }
-            }
-          } else {
-            logger.debug(`Unhandled end state: toolCallCount=${toolCallCount}, finishReason=${finishReason}`);
+                  saveDelta: !!saveStreamDeltas,
+                },
+                toolDefinitions,
+                logger,
+              );
+              break;
+            case "finish":
+              finishReason = part.finishReason;
+              logger.debug(`Stream part: finish (reason=${finishReason})`);
+              break;
+            case "error":
+              logger.error("Stream error:", part.errorText);
+              throw new Error(`Stream error: ${part.errorText}`);
+            default:
+              // Ignore other part types
+              break;
           }
-        } catch (error) {
-          logger.error("Error in stream handler:", error instanceof Error ? error.message : String(error));
-          if (streamer) {
-            await streamer.fail(error instanceof Error ? error.message : "Unknown error");
+        }
+        logger.debug(`Stream iteration complete (toolCallCount=${toolCallCount}, finishReason=${finishReason})`);
+
+        // Finish the delta stream
+        logger.debug("Finishing delta stream...");
+        await streamer.finish();
+
+        if (!responseMessage) {
+          throw new Error("No response message");
+        }
+        logger.debug(`Response message received (role=${responseMessage.role}, parts=${responseMessage.parts.length})`);
+
+        const providerMetadata = await getStreamTextProviderMetadata(result);
+        const usage = await getStreamTextUsage(result, providerMetadata);
+        logger.debug(`Usage info: ${usage ? JSON.stringify(usage) : "none"}`);
+        if (usage && usageHandlerCallback) {
+          logger.debug("Invoking onMessageComplete callback...");
+          try {
+            await usageHandlerCallback(ctx as ActionCtx, {
+              threadId: args.threadId,
+              streamId: args.streamId,
+              message: responseMessage,
+              usage,
+              providerMetadata: serializeForConvex(providerMetadata),
+            });
+            logger.debug("onMessageComplete callback succeeded");
+          } catch (e) {
+            console.error("endOfTurnCallback callback failed:", e);
           }
-          finalStatus = "failed";
-          if (errorHandlerCallback) {
-            logger.debug("Invoking onError callback...");
+        }
+
+        // Save the assistant response if we have one
+        if (responseMessage.role === "assistant" && responseMessage.parts.length > 0) {
+          logger.debug(
+            `Saving assistant response (id=${responseMessage.id}, parts=${responseMessage.parts.length}, seq=${stream.seq})`,
+          );
+          await ctx.runMutation(component.messages.add, {
+            threadId: args.threadId,
+            msg: responseMessage,
+            overwrite: true,
+            committedSeq: stream.seq,
+          });
+          logger.debug("Applying tool outcomes after saving response...");
+          await ctx.runMutation(component.messages.applyToolOutcomes, {
+            threadId: args.threadId,
+          });
+        }
+
+        // Handle tool calls
+        if (toolCallCount > 0) {
+          logger.debug(`Setting thread status to awaiting_tool_results (${toolCallCount} tool calls)`);
+          finalStatus = "awaiting_tool_results";
+        } else if (finishReason && finishReason !== "tool-calls") {
+          logger.debug(`No tool calls, setting thread status to completed (finishReason=${finishReason})`);
+          finalStatus = "completed";
+          if (turnCompleteHandlerCallback) {
+            logger.debug("Invoking onTurnComplete callback...");
             try {
-              await errorHandlerCallback(ctx as ActionCtx, {
+              await turnCompleteHandlerCallback(ctx as ActionCtx, {
                 threadId: args.threadId,
                 streamId: args.streamId,
-                error: error instanceof Error ? error.message : "Unknown error",
+                providerMetadata: serializeForConvex(providerMetadata),
+                finishReason,
               });
+              logger.debug("onTurnComplete callback succeeded");
             } catch (e) {
-              console.error("errorHandler callback failed:", e);
+              console.error("turnCompleteHandler callback failed:", e);
             }
           }
-          throw error;
+        } else {
+          logger.debug(`Unhandled end state: toolCallCount=${toolCallCount}, finishReason=${finishReason}`);
         }
 
         logger.debug("Stream handler completed successfully");
         return null;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const normalizedError = errorMessage || "Unknown error";
+        logger.error("Error in stream handler:", normalizedError);
+        try {
+          await streamer.fail(normalizedError);
+        } catch (streamAbortError) {
+          logger.error(
+            `Failed to abort stream after handler error: ${streamAbortError instanceof Error ? streamAbortError.message : String(streamAbortError)}`,
+          );
+        }
+        finalStatus = "failed";
+        if (errorHandlerCallback) {
+          logger.debug("Invoking onError callback...");
+          try {
+            await errorHandlerCallback(ctx as ActionCtx, {
+              threadId: args.threadId,
+              streamId: args.streamId,
+              error: normalizedError,
+            });
+          } catch (e) {
+            console.error("errorHandler callback failed:", e);
+          }
+        }
+        throw error;
       } finally {
         logger.debug("Finalizing stream turn and checking for continuation...");
         const finalizeArgs: {
