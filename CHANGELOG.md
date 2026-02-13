@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Minor stream handling and tool calling improvements
+
 ## 0.2.0
 
 - **Breaking API and database schema changes**

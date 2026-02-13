@@ -424,14 +424,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         { error: string; id: string },
-        null,
+        boolean,
         Name
       >;
       setResult: FunctionReference<
         "mutation",
         "internal",
         { id: string; result: any },
-        null,
+        boolean,
         Name
       >;
       setToolCallTimeout: FunctionReference<
