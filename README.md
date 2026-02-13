@@ -56,7 +56,6 @@ Create a chat handler with your AI model and tools:
 import { z } from "zod";
 import { components, internal } from "./_generated/api";
 import { createActionTool, defineAgentApi, streamHandlerAction } from "convex-durable-agents";
-import { openai } from "@ai-sdk/openai";
 
 // Define the stream handler with your model and tools
 export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
@@ -78,7 +77,7 @@ export const {
   sendMessage,
   getThread,
   listMessages,
-  listMessagesWithStreams,
+  streamUpdates,
   listThreads,
   deleteThread,
   resumeThread,
@@ -165,12 +164,13 @@ export const getWeather = internalAction({
 Use the React hooks to build your chat interface:
 
 ```tsx
-import { useAgentChat, getMessageKey } from "convex-durable-agents/react";
+import { useAgentChat } from "convex-durable-agents/react";
 import { api } from "../convex/_generated/api";
 
 function ChatView({ threadId }: { threadId: string }) {
   const { messages, status, isRunning, sendMessage, stop } = useAgentChat({
-    listMessages: api.chat.listMessagesWithStreams,
+    listMessages: api.chat.listMessages,
+    streamUpdates: api.chat.streamUpdates,
     getThread: api.chat.getThread,
     sendMessage: api.chat.sendMessage,
     stopThread: api.chat.stopThread,
@@ -181,7 +181,7 @@ function ChatView({ threadId }: { threadId: string }) {
   return (
     <div>
       {messages.map((msg) => (
-        <div key={getMessageKey(msg)}>
+        <div key={msg.metadata?.key}>
           <strong>{msg.role}:</strong> {msg.parts.map((p) => (p.type === "text" ? p.text : null))}
         </div>
       ))}
@@ -210,17 +210,18 @@ function ChatView({ threadId }: { threadId: string }) {
 
 Creates the full agent API with **public** functions that can be called directly from clients:
 
-- `createThread({ prompt? })` - Create a new conversation thread
+- `createThread({ prompt?, messages?, autoStart? })` - Create a new conversation thread
 - `sendMessage({ threadId, prompt })` - Send a message to a thread
+- `addMessage({ threadId, msg })` - Add a message to a thread without triggering the agent
 - `resumeThread({ threadId, prompt? })` - Resume a stopped/failed thread
 - `stopThread({ threadId })` - Stop a running thread
 - `getThread({ threadId })` - Get thread details
 - `listMessages({ threadId })` - List messages in a thread
-- `listMessagesWithStreams({ threadId, streamArgs? })` - List messages with streaming support
+- `streamUpdates({ threadId, fromSeq? })` - Get streaming message updates for real-time UI
 - `listThreads({ limit? })` - List all threads
 - `deleteThread({ threadId })` - Delete a thread
-- `addToolResult({ toolCallId, result })` - Add result for async tool
-- `addToolError({ toolCallId, error })` - Add error for async tool
+- `addToolResult({ threadId, toolCallId, result })` - Add result for async tool
+- `addToolError({ threadId, toolCallId, error })` - Add error for async tool
 
 **Options:**
 
@@ -229,6 +230,8 @@ type AgentApiOptions = {
   authorizationCallback?: (ctx: QueryCtx | MutationCtx | ActionCtx, threadId: string) => Promise<void> | void;
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  onStatusChange?: FunctionReference<"mutation", "internal">;
+  excludeSystemMessages?: boolean;
 };
 ```
 
@@ -237,9 +240,10 @@ type AgentApiOptions = {
 - `workpoolEnqueueAction` - Route agent and tool execution through a workpool for parallelism control
 - `toolExecutionWorkpoolEnqueueAction` - Override workpool for tool execution only (falls back to
   `workpoolEnqueueAction` if not set)
+- `onStatusChange` - Mutation callback invoked when thread status changes
+- `excludeSystemMessages` - Whether to exclude system messages from message lists (defaults to `true`)
 
-**Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`,
-`listMessagesWithStreams`, `deleteThread`
+**Protected endpoints:** `sendMessage`, `resumeThread`, `stopThread`, `getThread`, `listMessages`, `deleteThread`
 
 **Example with ownership check:**
 
@@ -310,7 +314,7 @@ All-in-one hook for chat functionality that combines thread state with mutations
 
 ```ts
 const {
-  messages, // UIMessage[]
+  messages, // UIMessageWithConvexMetadata[]
   thread, // ThreadDoc | null
   status, // ThreadStatus
   isLoading, // boolean
@@ -322,13 +326,13 @@ const {
   stop, // () => Promise<null>
   resume, // (prompt?: string) => Promise<null>
 } = useAgentChat({
-  listMessages: api.chat.listMessagesWithStreams,
+  listMessages: api.chat.listMessages,
+  streamUpdates: api.chat.streamUpdates,
   getThread: api.chat.getThread,
   sendMessage: api.chat.sendMessage,
   stopThread: api.chat.stopThread,
   resumeThread: api.chat.resumeThread,
   threadId,
-  stream: true, // optional, defaults to true
 });
 
 // Send a message (threadId is automatically included)
@@ -341,13 +345,13 @@ await stop();
 await resume();
 ```
 
-#### `useThread(messagesQuery, threadQuery, args, options?)`
+#### `useThreadMessages(options)`
 
-Lower-level hook for thread status and messages (use `useAgentChat` for most cases):
+Lower-level hook for thread messages with streaming support (use `useAgentChat` for most cases):
 
 ```ts
 const {
-  messages, // UIMessage[]
+  messages, // UIMessageWithConvexMetadata[]
   thread, // ThreadDoc | null
   status, // ThreadStatus
   isLoading, // boolean
@@ -355,7 +359,12 @@ const {
   isComplete, // boolean
   isFailed, // boolean
   isStopped, // boolean
-} = useThread(api.chat.listMessagesWithStreams, api.chat.getThread, { threadId }, { stream: true });
+} = useThreadMessages({
+  messagesQuery: api.chat.listMessages,
+  streamingMessageUpdatesQuery: api.chat.streamUpdates,
+  threadQuery: api.chat.getThread,
+  threadId,
+});
 ```
 
 #### `useSmoothText(text, options?)`
@@ -367,24 +376,6 @@ const [visibleText, { cursor, isStreaming }] = useSmoothText(text, {
   charsPerSec: 128,
   startStreaming: true,
 });
-```
-
-#### `useThreadStatus(query, args)`
-
-Subscribe to thread status changes:
-
-```ts
-const { thread, status, isRunning, isComplete, isFailed, isStopped } = useThreadStatus(api.chat.getThread, {
-  threadId,
-});
-```
-
-#### `useMessages(query, threadQuery, args)`
-
-Fetch and transform messages:
-
-```ts
-const { messages, isLoading, thread } = useMessages(api.chat.listMessages, api.chat.getThread, { threadId });
 ```
 
 ## Thread Status
@@ -479,9 +470,9 @@ defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
 ├─────────────────────────────────────────────────────────────┤
 │  defineAgentApi()          │  React Hooks                   │
 │  - createThread            │  - useAgentChat                │
-│  - sendMessage             │  - useThread                   │
-│  - stopThread              │  - useMessages                 │
-│  - resumeThread            │  - useSmoothText               │
+│  - sendMessage             │  - useThreadMessages           │
+│  - stopThread              │  - useSmoothText               │
+│  - resumeThread            │                                │
 ├─────────────────────────────────────────────────────────────┤
 │                   Durable Agent Component                    │
 ├──────────────┬──────────────┬──────────────┬────────────────┤
