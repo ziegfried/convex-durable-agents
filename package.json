@@ -6,7 +6,7 @@
   "bugs": {
     "url": "https://github.com/ziegfried/convex-durable-agents/issues"
   },
-  "version": "0.1.8",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "keywords": [
     "convex",
@@ -39,7 +39,7 @@
     "preversion": "npm run build:clean && run-p test lint typecheck",
     "alpha": "npm version prerelease --preid alpha && npm publish --tag alpha && git push --follow-tags",
     "release": "npm version patch && npm publish && git push --follow-tags",
-    "version": "vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && biome format --write CHANGELOG.md && git add CHANGELOG.md"
+    "version": "vim CHANGELOG.md && biome format --write CHANGELOG.md && git add CHANGELOG.md"
   },
   "files": [
     "dist",

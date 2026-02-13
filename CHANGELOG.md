@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- **Breaking API and database schema changes**
+- Rewrite of streaming message updates (simplified data model, using `UIMessageChunks` and `readUIMessageStream` on the client)
+- `toolCallId`s are now unique per thread, some API methods now require `threadId`
+- Tool calls time out after 30 minutes
+- API `setToolCallTimeout` to dynamically change expiration for async tool calls
+- Tool calls now get invoked a little earlier, as soon as we see `input-available` in the stream
+
 ## 0.1.8
 
 - Simplified message table (breaking change)
