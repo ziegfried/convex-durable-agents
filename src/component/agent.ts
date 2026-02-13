@@ -30,6 +30,32 @@ async function enqueueAction(
   }
 }
 
+function createToolOutputPart(args: {
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
+  result?: unknown;
+  error?: string;
+}) {
+  const type = `tool-${args.toolName}`;
+  if (args.error) {
+    return {
+      type,
+      toolCallId: args.toolCallId,
+      state: "output-error" as const,
+      input: args.input,
+      errorText: args.error,
+    };
+  }
+  return {
+    type,
+    toolCallId: args.toolCallId,
+    state: "output-available" as const,
+    input: args.input,
+    output: args.result,
+  };
+}
+
 /**
  * Continue the agent stream - called to start or resume processing
  *
@@ -74,13 +100,24 @@ export const continueStream = mutation({
       return null;
     }
 
-    const streamId = crypto.randomUUID();
+    if (thread.activeStream) {
+      const isAlive = await ctx.runQuery(api.streams.isAlive, {
+        streamId: thread.activeStream,
+      });
+      if (isAlive) {
+        console.log(`Thread ${args.threadId} has an active stream that is still alive`);
+        await ctx.db.patch(thread._id, { continue: true });
+        return null;
+      }
+    }
 
-    // Set status to streaming
-    await ctx.runMutation(api.threads.setStatus, {
+    const nextStreamId = await ctx.runMutation(api.streams.create, {
       threadId: args.threadId,
-      status: "streaming",
-      streamId,
+    });
+    await ctx.db.patch(thread._id, { activeStream: nextStreamId, status: "streaming", continue: false });
+    await ctx.runMutation(api.streams.cancelInactiveStreams, {
+      threadId: args.threadId,
+      activeStreamId: nextStreamId,
     });
 
     // Schedule the stream handler (via workpool if configured)
@@ -88,7 +125,7 @@ export const continueStream = mutation({
       ctx,
       thread.workpoolEnqueueAction ?? undefined,
       thread.streamFnHandle as FunctionHandle<"action">,
-      { threadId: args.threadId, streamId },
+      { threadId: args.threadId, streamId: nextStreamId as string },
     );
 
     return null;
@@ -101,6 +138,7 @@ export const continueStream = mutation({
 export const scheduleToolCall = mutation({
   args: {
     threadId: v.id("threads"),
+    msgId: v.string(),
     toolCallId: v.string(),
     toolName: v.string(),
     args: v.any(),
@@ -117,6 +155,7 @@ export const scheduleToolCall = mutation({
     // Create the tool call record
     await ctx.db.insert("tool_calls", {
       threadId: args.threadId,
+      msgId: args.msgId,
       toolCallId: args.toolCallId,
       toolName: args.toolName,
       args: args.args,
@@ -144,6 +183,7 @@ export const scheduleAsyncToolCall = mutation({
   args: {
     threadId: v.id("threads"),
     toolCallId: v.string(),
+    msgId: v.string(),
     toolName: v.string(),
     args: v.any(),
     callback: v.string(),
@@ -160,6 +200,7 @@ export const scheduleAsyncToolCall = mutation({
     await ctx.db.insert("tool_calls", {
       threadId: args.threadId,
       toolCallId: args.toolCallId,
+      msgId: args.msgId,
       toolName: args.toolName,
       args: args.args,
     });
@@ -192,6 +233,7 @@ export const executeToolCall = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     // Get the tool call record
+    console.log("executeToolCall 1", args.toolCallId);
     const toolCall = await ctx.runQuery(api.tool_calls.getByToolCallId, {
       threadId: args.threadId,
       toolCallId: args.toolCallId,
@@ -212,41 +254,21 @@ export const executeToolCall = internalAction({
       const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
 
       result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolArgs as Record<string, unknown>);
+
+      console.log("executeToolCall 2", result);
+
+      await ctx.runMutation(api.agent.addToolResult, {
+        result,
+        toolCallId: toolCall.toolCallId,
+      })
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
-    }
-
-    // Update the tool call record
-    if (error) {
-      await ctx.runMutation(api.tool_calls.setError, {
-        id: toolCall._id as any,
+      console.log("executeToolCall 3", error);
+      await ctx.runMutation(api.agent.addToolError, {
         error,
-      });
-    } else {
-      await ctx.runMutation(api.tool_calls.setResult, {
-        id: toolCall._id as any,
-        result,
+        toolCallId: toolCall.toolCallId,
       });
     }
-
-    // Add tool result message
-    await ctx.runMutation(api.messages.add, {
-      threadId: args.threadId,
-      role: "tool",
-      content: [
-        {
-          type: "tool-result",
-          toolCallId: args.toolCallId,
-          toolName: toolCall.toolName,
-          output: error ? { type: "error-json", value: { error } } : { type: "json", value: result },
-        },
-      ],
-    });
-
-    // Check if all tool calls are complete
-    await ctx.runMutation(internal.agent.onToolComplete, {
-      threadId: args.threadId,
-    });
 
     return null;
   },
@@ -338,6 +360,7 @@ export const addToolResult = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    console.log("addToolResult 1", args.toolCallId);
     const toolCall = await ctx.db
       .query("tool_calls")
       .withIndex("by_tool_call_id", (q) => q.eq("toolCallId", args.toolCallId))
@@ -357,17 +380,17 @@ export const addToolResult = mutation({
     await ctx.db.patch(toolCall._id, { result: args.result });
 
     // Add tool result message
-    await ctx.runMutation(api.messages.add, {
+    await ctx.runMutation(api.messages.appendToolOutcomePart, {
       threadId: threadId,
-      role: "tool",
-      content: [
-        {
-          type: "tool-result",
-          toolCallId: args.toolCallId,
-          toolName: toolCall.toolName,
-          output: { type: "json", value: args.result },
-        },
-      ],
+      msgId: toolCall.msgId,
+      toolCallId: args.toolCallId,
+      part: createToolOutputPart({
+        toolCallId: args.toolCallId,
+        toolName: toolCall.toolName,
+        input: toolCall.args ?? {},
+        result: args.result,
+      }),
+      throwOnMissingToolCallPart: false,
     });
 
     // Check if all tool calls are complete and continue if so
@@ -391,6 +414,7 @@ export const addToolError = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     // Find the tool call record
+    console.log("addToolError 1", args.toolCallId);
     const toolCall = await ctx.db
       .query("tool_calls")
       .withIndex("by_tool_call_id", (q) => q.eq("toolCallId", args.toolCallId))
@@ -411,17 +435,17 @@ export const addToolError = mutation({
     await ctx.db.patch(toolCall._id, { error: args.error });
 
     // Add tool result message with error
-    await ctx.runMutation(api.messages.add, {
+    await ctx.runMutation(api.messages.appendToolOutcomePart, {
       threadId: threadId,
-      role: "tool",
-      content: [
-        {
-          type: "tool-result",
-          toolCallId: args.toolCallId,
-          toolName: toolCall.toolName,
-          output: { type: "error-json", value: { error: args.error } },
-        },
-      ],
+      msgId: toolCall.msgId,
+      toolCallId: args.toolCallId,
+      part: createToolOutputPart({
+        toolCallId: args.toolCallId,
+        toolName: toolCall.toolName,
+        input: toolCall.args ?? {},
+        error: args.error,
+      }),
+      throwOnMissingToolCallPart: false,
     });
 
     // Check if all tool calls are complete and continue if so

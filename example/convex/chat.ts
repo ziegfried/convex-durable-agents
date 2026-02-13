@@ -61,7 +61,7 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, {
 export const {
   getThread,
   listMessages,
-  listMessagesWithStreams,
+  streamUpdates,
   listThreads,
   deleteThread,
   createThread,

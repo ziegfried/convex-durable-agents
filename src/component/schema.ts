@@ -27,7 +27,12 @@ export const vMessage = v.object({
 // Streaming message state - tracks the lifecycle of a streaming session
 export const vStreamingState = v.union(
   v.object({
+    kind: v.literal("pending"),
+    scheduledAt: v.number(),
+  }),
+  v.object({
     kind: v.literal("streaming"),
+    lockId: v.string(),
     lastHeartbeat: v.number(),
     timeoutFnId: v.optional(v.id("_scheduled_functions")),
   }),
@@ -39,39 +44,52 @@ export const vStreamingState = v.union(
   v.object({
     kind: v.literal("aborted"),
     reason: v.string(),
+    cleanupFnId: v.optional(v.id("_scheduled_functions")),
   }),
 );
-
-// Stream format type
-export const vStreamFormat = v.union(v.literal("UIMessageChunk"), v.literal("TextStreamPart"));
 
 const schema = defineSchema({
   // Minimal state for the agent tool loop
   threads: defineTable({
     status: vThreadStatus,
+    // If true, the thread will stop. We set this when the user clicks the stop button.
     stopSignal: v.boolean(),
+    // Function reference to stream handler action (see streamHandlerAction)
     streamFnHandle: v.string(),
-    streamId: v.optional(v.union(v.string(), v.null())),
+    // Currently active stream for this thread. We only allow one at a time.
+    activeStream: v.optional(v.union(v.id("streams"), v.null())),
+    // If we try to continue the stream while it's still running, we set this to true.
+    // At the end of the streamHandler, if this flag is set, we schedule continueStream right away.
+    continue: v.optional(v.boolean()),
     // Optional workpool handles for scheduling actions
     workpoolEnqueueAction: v.optional(v.string()),
+    // Optional workpool handle for scheduling tool executions (see scheduleToolCall)
+    // If not provided, we use the same workpool as the stream handler.
     toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
     // Optional callback for status changes
     onStatusChangeHandle: v.optional(v.string()),
+    // Monotonically increasing sequence number for streams of this thread
+    seq: v.number(),
   }),
 
   // AI SDK compatible message storage
   messages: defineTable({
     threadId: v.id("threads"),
-    order: v.number(),
-    role: vMessageRole,
-    content: vMessageContent,
+    // We use the AI SDK's generated message ID
+    id: v.string(),
+    role: v.union(v.literal("system"), v.literal("user"), v.literal("assistant")),
+    parts: v.array(v.any()),
+    metadata: v.optional(v.any()),
+    // Allow the client to ignore streaming deltas from streams with a seq <= this value
+    committedSeq: v.optional(v.number()),
   })
-    .index("by_thread", ["threadId", "order"])
-    .index("by_thread_role", ["threadId", "role"]),
+    .index("by_thread", ["threadId"])
+    .index("by_msg_id", ["threadId", "id"]),
 
   // Track pending tool executions
   tool_calls: defineTable({
     threadId: v.id("threads"),
+    msgId: v.string(),
     toolCallId: v.string(),
     toolName: v.string(),
     args: v.any(),
@@ -81,21 +99,20 @@ const schema = defineSchema({
     .index("by_thread", ["threadId"])
     .index("by_tool_call_id", ["toolCallId"]),
 
-  // Active streaming sessions (optional delta streaming feature)
-  streaming_messages: defineTable({
+  streams: defineTable({
     threadId: v.id("threads"),
-    order: v.number(),
+    // State of the stream. This is maintained even if we don't capture streaming deltas.
     state: vStreamingState,
-    format: v.optional(vStreamFormat),
-  }).index("by_thread_state_order", ["threadId", "state.kind", "order"]),
+    // Monotonically increasing sequence number for streams of a thread
+    seq: v.number(),
+  }).index("by_thread", ["threadId", "seq"]),
 
-  // Streaming deltas - stores chunks of streaming data
-  stream_deltas: defineTable({
-    streamId: v.id("streaming_messages"),
-    start: v.number(),
-    end: v.number(),
+  deltas: defineTable({
+    streamId: v.id("streams"),
+    seq: v.number(),
+    msgId: v.string(),
     parts: v.array(v.any()),
-  }).index("by_stream_start_end", ["streamId", "start", "end"]),
+  }).index("by_stream", ["streamId", "seq"]),
 });
 
 export default schema;

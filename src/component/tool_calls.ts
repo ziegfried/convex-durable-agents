@@ -7,6 +7,7 @@ export type ToolCallDoc = {
   _id: Id<"tool_calls">;
   _creationTime: number;
   threadId: Id<"threads">;
+  msgId: string;
   toolCallId: string;
   toolName: string;
   args: unknown;
@@ -19,6 +20,7 @@ function publicToolCall(toolCall: Doc<"tool_calls">): ToolCallDoc {
     _id: toolCall._id,
     _creationTime: toolCall._creationTime,
     threadId: toolCall.threadId,
+    msgId: toolCall.msgId,
     toolCallId: toolCall.toolCallId,
     toolName: toolCall.toolName,
     args: toolCall.args,
@@ -33,6 +35,7 @@ export const vToolCallDoc = v.object({
   _creationTime: v.number(),
   threadId: v.id("threads"),
   toolCallId: v.string(),
+  msgId: v.string(),
   toolName: v.string(),
   args: v.any(),
   result: v.optional(v.any()),
@@ -42,6 +45,7 @@ export const vToolCallDoc = v.object({
 export const create = mutation({
   args: {
     threadId: v.id("threads"),
+    msgId: v.string(),
     toolCallId: v.string(),
     toolName: v.string(),
     args: v.any(),
@@ -50,6 +54,7 @@ export const create = mutation({
   handler: async (ctx, args) => {
     const toolCallId = await ctx.db.insert("tool_calls", {
       threadId: args.threadId,
+      msgId: args.msgId,
       toolCallId: args.toolCallId,
       toolName: args.toolName,
       args: args.args,
@@ -68,6 +73,7 @@ export const setResult = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const toolCall = await ctx.db.get(args.id);
+    console.log("setResult", toolCall?.toolCallId);
     if (!toolCall) {
       throw new Error(`Tool call ${args.id} not found`);
     }
@@ -84,6 +90,7 @@ export const setError = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     const toolCall = await ctx.db.get(args.id);
+    console.log("setError", toolCall?.toolCallId);
     if (!toolCall) {
       throw new Error(`Tool call ${args.id} not found`);
     }

@@ -1,7 +1,9 @@
-import { type ToolCallUIPart, type UIMessage, getMessageStatus, getMessageText } from "convex-durable-agents/react";
 import { useState } from "react";
 import { SmoothText } from "./SmoothText";
+import { TextUIPart, UIMessage, UIMessagePart } from "ai";
+import { ThreadStatus, UIMessageWithConvexMetadata } from "../../dist/react";
 
+type ToolCallUIPart = Extract<UIMessagePart<any, any>, { type: `tool-${string}` }>;
 /**
  * Helper to check if a part is a tool call
  */
@@ -226,19 +228,16 @@ function ToolCallDisplay({ toolCall }: { toolCall: ToolCallUIPart }) {
   );
 }
 
+function getMessageStatus(message: UIMessageWithConvexMetadata): ThreadStatus | "success" | undefined {
+  return message.metadata?.status;
+}
+
 /**
  * Single chat message component
  */
-export function ChatMessage({ message }: { message: UIMessage }) {
+export function ChatMessage({ message }: { message: UIMessageWithConvexMetadata }) {
   const status = getMessageStatus(message);
   const isStreaming = status === "streaming" || status === "awaiting_tool_results";
-
-  // Extract text content using helper
-  const textContent = getMessageText(message);
-
-  // Extract tool invocations (parts with type starting with "tool-")
-  const toolInvocations = message.parts.filter(isToolPart);
-
   const isUser = message.role === "user";
 
   return (
@@ -258,23 +257,23 @@ export function ChatMessage({ message }: { message: UIMessage }) {
           color: isUser ? "white" : "black",
         }}
       >
-        {/* Tool invocations */}
-        {toolInvocations.map((tc) => (
-          <ToolCallDisplay key={tc.toolCallId} toolCall={tc} />
-        ))}
-
-        {/* Text content */}
-        {textContent && (
-          <div style={{ whiteSpace: "pre-wrap" }}>
-            <SmoothText text={textContent} isStreaming={isStreaming} />
-          </div>
-        )}
+        {message.parts.map((part, index) => <MessagePartDisplay key={index} part={part} isStreaming={!isUser && index === message.parts.length - 1} />)}
 
         {/* Loading indicator */}
-        {isStreaming && !textContent && toolInvocations.length === 0 && (
+        {isStreaming && (
           <div style={{ color: "rgba(0,0,0,0.5)" }}>Thinking...</div>
         )}
       </div>
     </div>
   );
+}
+
+function MessagePartDisplay({ part, isStreaming }: { part: UIMessagePart<any, any>; isStreaming: boolean }) {
+  if (part.type === "text") {
+    return <SmoothText text={part.text} isStreaming={isStreaming} />;
+  }
+  if (isToolPart(part)) {
+    return <ToolCallDisplay toolCall={part} />;
+  }
+  return null;
 }

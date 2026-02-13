@@ -1,4 +1,4 @@
-import { getMessageKey, useAgentChat } from "convex-durable-agents/react";
+import { useAgentChat } from "convex-durable-agents/react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import { ChatMessage } from "./ChatMessage";
@@ -9,7 +9,8 @@ import { StatusBadge } from "./StatusBadge";
  */
 export function Chat({ threadId }: { threadId: string }) {
   const { messages, status, isLoading, isRunning, isFailed, isStopped, sendMessage, stop, resume } = useAgentChat({
-    listMessages: api.chat.listMessagesWithStreams,
+    listMessages: api.chat.listMessages,
+    streamUpdates: api.chat.streamUpdates,
     getThread: api.chat.getThread,
     sendMessage: api.chat.sendMessage,
     stopThread: api.chat.stopThread,
@@ -116,8 +117,8 @@ export function Chat({ threadId }: { threadId: string }) {
           </div>
         )}
 
-        {messages.map((message) => (
-          <ChatMessage key={getMessageKey(message)} message={message} />
+        {messages.map((message, index) => (
+          <ChatMessage key={message.metadata?.key ?? index} message={message} />
         ))}
 
         {isFailed && (

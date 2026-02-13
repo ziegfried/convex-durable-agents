@@ -22,7 +22,7 @@ function publicThread(thread: Doc<"threads">): ThreadDoc {
     _creationTime: thread._creationTime,
     status: thread.status,
     stopSignal: thread.stopSignal,
-    streamId: thread.streamId,
+    streamId: thread.activeStream as string,
     streamFnHandle: thread.streamFnHandle,
     workpoolEnqueueAction: thread.workpoolEnqueueAction,
     toolExecutionWorkpoolEnqueueAction: thread.toolExecutionWorkpoolEnqueueAction,
@@ -51,6 +51,9 @@ export const vThreadDocWithStreamFnHandle = v.object({
   workpoolEnqueueAction: v.optional(v.string()),
   toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
   onStatusChangeHandle: v.optional(v.string()),
+  activeStream: v.optional(v.union(v.id("streams"), v.null())),
+  continue: v.optional(v.boolean()),
+  seq: v.number(),
 });
 
 export const create = mutation({
@@ -71,6 +74,7 @@ export const create = mutation({
       workpoolEnqueueAction: args.workpoolEnqueueAction,
       toolExecutionWorkpoolEnqueueAction: args.toolExecutionWorkpoolEnqueueAction,
       onStatusChangeHandle: args.onStatusChangeHandle,
+      seq: 0,
     });
     const thread = await ctx.db.get(threadId);
     return publicThread(thread!);
@@ -143,7 +147,7 @@ export const setStatus = mutation({
   args: {
     threadId: v.id("threads"),
     status: vThreadStatus,
-    streamId: v.optional(v.string()),
+    streamId: v.optional(v.id("streams")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -154,7 +158,7 @@ export const setStatus = mutation({
     const previousStatus = thread.status;
     await ctx.db.patch(args.threadId, {
       status: args.status,
-      streamId: args.streamId,
+      activeStream: args.streamId,
     });
     if (thread.onStatusChangeHandle && previousStatus !== args.status) {
       await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
@@ -171,10 +175,11 @@ export const clearStreamId = mutation({
   args: {
     threadId: v.id("threads"),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.threadId, { streamId: null });
-    return null;
+    const thread = await ctx.db.get(args.threadId);
+    await ctx.db.patch(args.threadId, { activeStream: null });
+    return thread?.continue ?? false;
   },
 });
 

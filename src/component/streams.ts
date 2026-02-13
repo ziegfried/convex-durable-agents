@@ -1,82 +1,100 @@
-import type { Infer } from "convex/values";
-import { v } from "convex/values";
-import { api, internal } from "./_generated/api.js";
-import type { Doc, Id } from "./_generated/dataModel.js";
-import type { MutationCtx } from "./_generated/server.js";
-import { internalMutation, mutation, query } from "./_generated/server.js";
-import { vStreamFormat } from "./schema.js";
+import type { UIMessageChunk } from "ai";
+import { type Infer, v } from "convex/values";
+import { api, internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation, type MutationCtx, mutation, query } from "./_generated/server";
 
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 
-const MAX_DELTAS_PER_REQUEST = 1000;
-const MAX_DELTAS_PER_STREAM = 100;
 const TIMEOUT_INTERVAL = 10 * MINUTE;
 const DELETE_STREAM_DELAY = MINUTE * 5;
 
-// Stream message validator for public API
-export const vStreamMessage = v.object({
-  streamId: v.string(),
-  status: v.union(v.literal("streaming"), v.literal("finished"), v.literal("aborted")),
-  format: v.optional(vStreamFormat),
-  order: v.number(),
-  threadId: v.string(),
-});
-
-export type StreamMessage = Infer<typeof vStreamMessage>;
-
-// Stream delta validator for public API
-export const vStreamDelta = v.object({
-  streamId: v.string(),
-  start: v.number(),
-  end: v.number(),
-  parts: v.array(v.any()),
-});
-
-export type StreamDelta = Infer<typeof vStreamDelta>;
-
-// Internal delta validator matching the schema
-const deltaValidator = v.object({
-  streamId: v.id("streaming_messages"),
-  start: v.number(),
-  end: v.number(),
-  parts: v.array(v.any()),
-});
-
-// Convert doc to public stream message
-function publicStreamMessage(m: Doc<"streaming_messages">): StreamMessage {
-  return {
-    streamId: m._id as string,
-    status: m.state.kind,
-    format: m.format,
-    order: m.order,
-    threadId: m.threadId as string,
-  };
-}
-
-/**
- * Create a new streaming session
- */
 export const create = mutation({
   args: {
     threadId: v.id("threads"),
-    order: v.number(),
-    format: v.optional(vStreamFormat),
   },
-  returns: v.id("streaming_messages"),
+  returns: v.id("streams"),
   handler: async (ctx, args) => {
-    const state = { kind: "streaming" as const, lastHeartbeat: Date.now() };
-    const streamId = await ctx.db.insert("streaming_messages", {
-      threadId: args.threadId,
-      order: args.order,
-      format: args.format,
-      state,
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) throw new Error(`Thread ${args.threadId} not found`);
+    await ctx.db.patch(args.threadId, {
+      seq: thread.seq + 1,
     });
+    return await ctx.db.insert("streams", {
+      threadId: args.threadId,
+      state: { kind: "pending", scheduledAt: Date.now() },
+      seq: thread.seq + 1,
+    });
+  },
+});
 
-    const timeoutFnId = await ctx.scheduler.runAfter(TIMEOUT_INTERVAL, internal.streams.timeoutStream, { streamId });
+export const take = mutation({
+  args: {
+    threadId: v.id("threads"),
+    streamId: v.id("streams"),
+    lockId: v.string(),
+  },
+  handler: async (ctx, args): Promise<Doc<"streams">> => {
+    const stream = await ctx.db.get(args.streamId);
+    if (stream === null) throw new Error(`Stream ${args.streamId} not found`);
 
-    await ctx.db.patch(streamId, { state: { ...state, timeoutFnId } });
-    return streamId;
+    if (stream.state.kind === "pending") {
+      const timeoutFnId = await ctx.scheduler.runAfter(TIMEOUT_INTERVAL, internal.streams.timeoutStream, {
+        streamId: args.streamId,
+      });
+      await ctx.db.patch(args.streamId, {
+        state: { kind: "streaming", lockId: args.lockId, lastHeartbeat: Date.now(), timeoutFnId },
+      });
+    } else if (stream.state.kind === "streaming") {
+      if (stream.state.lockId !== args.lockId) {
+        throw new Error(`Stream ${args.streamId} is already locked by another thread`);
+      }
+      console.warn(
+        `Stream ${args.streamId} is already streaming with lockId=${stream.state.lockId}, updating heartbeat`,
+      );
+      await ctx.db.patch(args.streamId, {
+        state: {
+          kind: "streaming",
+          lockId: args.lockId,
+          lastHeartbeat: Date.now(),
+          timeoutFnId: stream.state.timeoutFnId,
+        },
+      });
+      //
+    } else {
+      throw new Error(`Stream ${args.streamId} is not pending or streaming`);
+    }
+    const thread = await ctx.runQuery(api.threads.get, { threadId: stream.threadId });
+    if (!thread) throw new Error(`Thread ${stream.threadId} not found`);
+    return stream;
+  },
+});
+
+export const cancelInactiveStreams = mutation({
+  args: {
+    threadId: v.id("threads"),
+    activeStreamId: v.id("streams"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    for await (const stream of ctx.db.query("streams").withIndex("by_thread", (q) => q.eq("threadId", args.threadId))) {
+      if (stream._id !== args.activeStreamId && stream.state.kind === "streaming") {
+        await cancelStream(ctx, stream, "superseeded");
+      }
+    }
+  },
+});
+
+export const isAlive = query({
+  args: {
+    streamId: v.id("streams"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const stream = await ctx.db.get(args.streamId);
+    if (!stream) return false;
+    return stream.state.kind === "streaming" && stream.state.lastHeartbeat > Date.now() - 30_000;
   },
 });
 
@@ -84,110 +102,35 @@ export const create = mutation({
  * Add delta parts to a stream
  */
 export const addDelta = mutation({
-  args: deltaValidator,
+  args: {
+    streamId: v.id("streams"),
+    lockId: v.string(),
+    parts: v.array(v.any()),
+    seq: v.number(),
+    msgId: v.string(),
+  },
   returns: v.boolean(),
   handler: async (ctx, args) => {
-    const stream = await ctx.db.get(args.streamId);
-    if (!stream) {
-      console.warn("[streams.addDelta] Stream not found:", args.streamId);
-      return false;
-    }
-    if (stream.state.kind !== "streaming") {
-      console.warn("[streams.addDelta] Stream not active:", args.streamId, "state:", stream.state.kind);
-      return false;
-    }
-    await ctx.db.insert("stream_deltas", args);
-    await heartbeatStream(ctx, { streamId: args.streamId });
+    await heartbeatStream(ctx, { streamId: args.streamId, lockId: args.lockId });
+
+    await ctx.db.insert("deltas", {
+      streamId: args.streamId,
+      seq: args.seq,
+      parts: args.parts,
+      msgId: args.msgId,
+    });
+
     return true;
   },
 });
-
-/**
- * List deltas for multiple streams with cursor support
- */
-export const listDeltas = query({
-  args: {
-    threadId: v.id("threads"),
-    cursors: v.array(v.object({ streamId: v.id("streaming_messages"), cursor: v.number() })),
-  },
-  returns: v.array(vStreamDelta),
-  handler: async (ctx, args): Promise<Array<StreamDelta>> => {
-    let totalDeltas = 0;
-    const deltas: Array<StreamDelta> = [];
-
-    for (const cursor of args.cursors) {
-      const streamDeltas = await ctx.db
-        .query("stream_deltas")
-        .withIndex("by_stream_start_end", (q) => q.eq("streamId", cursor.streamId).gte("start", cursor.cursor))
-        .take(Math.min(MAX_DELTAS_PER_STREAM, MAX_DELTAS_PER_REQUEST - totalDeltas));
-
-      totalDeltas += streamDeltas.length;
-      deltas.push(
-        ...streamDeltas.map((d) => ({
-          streamId: d.streamId as string,
-          start: d.start,
-          end: d.end,
-          parts: d.parts,
-        })),
-      );
-
-      if (totalDeltas >= MAX_DELTAS_PER_REQUEST) {
-        break;
-      }
-    }
-    return deltas;
-  },
-});
-
-/**
- * List active streams for a thread
- */
-export const list = query({
-  args: {
-    threadId: v.id("threads"),
-    startOrder: v.optional(v.number()),
-    statuses: v.optional(v.array(v.union(v.literal("streaming"), v.literal("finished"), v.literal("aborted")))),
-  },
-  returns: v.array(vStreamMessage),
-  handler: async (ctx, args) => {
-    const statuses = args.statuses ?? ["streaming"];
-    const allMessages: Array<Doc<"streaming_messages">> = [];
-
-    for (const status of statuses) {
-      const messages = await ctx.db
-        .query("streaming_messages")
-        .withIndex("by_thread_state_order", (q) =>
-          q
-            .eq("threadId", args.threadId)
-            .eq("state.kind", status)
-            .gte("order", args.startOrder ?? 0),
-        )
-        .order("desc")
-        .take(100);
-      allMessages.push(...messages);
-    }
-
-    return allMessages.map(publicStreamMessage);
-  },
-});
-
-async function cleanupTimeoutFn(ctx: MutationCtx, stream: Doc<"streaming_messages">) {
-  if (stream.state.kind === "streaming" && stream.state.timeoutFnId) {
-    const timeoutFn = await ctx.db.system.get(stream.state.timeoutFnId);
-    if (timeoutFn?.state.kind === "pending") {
-      await ctx.scheduler.cancel(stream.state.timeoutFnId);
-    }
-  }
-}
 
 /**
  * Abort a stream
  */
 export const abort = mutation({
   args: {
-    streamId: v.id("streaming_messages"),
+    streamId: v.id("streams"),
     reason: v.string(),
-    finalDelta: v.optional(deltaValidator),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
@@ -195,42 +138,8 @@ export const abort = mutation({
     if (!stream) {
       throw new Error(`Stream not found: ${args.streamId}`);
     }
-    if (args.finalDelta) {
-      await ctx.db.insert("stream_deltas", args.finalDelta);
-    }
-    if (stream.state.kind !== "streaming") {
-      console.warn("[streams.abort] Stream not active:", args.streamId, "state:", stream.state.kind);
-      return false;
-    }
-    await cleanupTimeoutFn(ctx, stream);
-    await ctx.db.patch(args.streamId, {
-      state: { kind: "aborted", reason: args.reason },
-    });
+    await cancelStream(ctx, stream, args.reason);
     return true;
-  },
-});
-
-/**
- * Abort all streams for a thread at a specific order
- */
-export const abortByOrder = mutation({
-  args: { threadId: v.id("threads"), order: v.number(), reason: v.string() },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    const streams = await ctx.db
-      .query("streaming_messages")
-      .withIndex("by_thread_state_order", (q) =>
-        q.eq("threadId", args.threadId).eq("state.kind", "streaming").eq("order", args.order),
-      )
-      .take(100);
-
-    for (const stream of streams) {
-      await cleanupTimeoutFn(ctx, stream);
-      await ctx.db.patch(stream._id, {
-        state: { kind: "aborted", reason: args.reason },
-      });
-    }
-    return streams.length > 0;
   },
 });
 
@@ -239,44 +148,77 @@ export const abortByOrder = mutation({
  */
 export const finish = mutation({
   args: {
-    streamId: v.id("streaming_messages"),
-    finalDelta: v.optional(deltaValidator),
+    streamId: v.id("streams"),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    if (args.finalDelta) {
-      await ctx.db.insert("stream_deltas", args.finalDelta);
-    }
     const stream = await ctx.db.get(args.streamId);
     if (!stream) {
       throw new Error(`Stream not found: ${args.streamId}`);
     }
-    if (stream.state.kind !== "streaming") {
-      console.warn("[streams.finish] Stream not active:", args.streamId, "state:", stream.state.kind);
-      return null;
-    }
-    await cleanupTimeoutFn(ctx, stream);
-    const cleanupFnId = await ctx.scheduler.runAfter(DELETE_STREAM_DELAY, api.streams.deleteStreamAsync, {
-      streamId: args.streamId,
-    });
-    await ctx.db.patch(args.streamId, {
-      state: { kind: "finished", endedAt: Date.now(), cleanupFnId },
-    });
+    await finishStream(ctx, stream);
     return null;
   },
 });
 
-async function heartbeatStream(ctx: MutationCtx, args: { streamId: Id<"streaming_messages"> }): Promise<void> {
+async function cleanupTimeoutFn(ctx: MutationCtx, stream: Doc<"streams">): Promise<void> {
+  if (stream.state.kind === "streaming" && stream.state.timeoutFnId) {
+    const timeoutFn = await ctx.db.system.get(stream.state.timeoutFnId);
+    if (timeoutFn?.state.kind === "pending") {
+      await ctx.scheduler.cancel(stream.state.timeoutFnId);
+    }
+  }
+}
+
+async function finishStream(ctx: MutationCtx, stream: Doc<"streams">): Promise<void> {
+  if (stream.state.kind === "finished" || stream.state.kind === "aborted") {
+    return;
+  }
+  await cleanupTimeoutFn(ctx, stream);
+  const cleanupFnId = await ctx.scheduler.runAfter(DELETE_STREAM_DELAY, api.streams.deleteStreamAsync, {
+    streamId: stream._id,
+  });
+  await ctx.db.patch(stream._id, { state: { kind: "finished", endedAt: Date.now(), cleanupFnId } });
+}
+
+async function cancelStream(ctx: MutationCtx, stream: Doc<"streams">, reason: string): Promise<void> {
+  if (!stream) {
+    return;
+  }
+  if (stream.state.kind === "finished" || stream.state.kind === "aborted") {
+    return;
+  }
+  const cleanupFnId = await ctx.scheduler.runAfter(DELETE_STREAM_DELAY, api.streams.deleteStreamAsync, {
+    streamId: stream._id,
+  });
+  await ctx.db.patch(stream._id, { state: { kind: "aborted", reason, cleanupFnId } });
+  await cleanupTimeoutFn(ctx, stream);
+}
+
+async function heartbeatStream(
+  ctx: MutationCtx,
+  args: { streamId: Id<"streams">; lockId: string },
+): Promise<Doc<"streams"> | null> {
   const stream = await ctx.db.get(args.streamId);
   if (!stream) {
-    console.warn("Stream not found", args.streamId);
-    return;
+    throw new Error(`Stream not found ${args.streamId}`);
   }
   if (stream.state.kind !== "streaming") {
-    return;
+    throw new Error(`Stream ${args.streamId} is not streaming`);
+  }
+  if (stream.state.lockId !== args.lockId) {
+    await cancelStream(ctx, stream, "locked by another thread");
+    throw new Error(`Stream ${args.streamId} is locked by another thread`);
+  }
+  const thread = await ctx.db.get(stream.threadId);
+  if (thread?.activeStream !== args.streamId) {
+    await cancelStream(ctx, stream, "thread active stream mismatch");
+    throw new Error(
+      `Thread ${stream.threadId} has active stream ${thread?.activeStream ?? "NULL"} but expected ${args.streamId} (`,
+    );
   }
   if (Date.now() - stream.state.lastHeartbeat < TIMEOUT_INTERVAL / 4) {
-    return;
+    return stream;
   }
   if (!stream.state.timeoutFnId) {
     throw new Error("Stream has no timeout function");
@@ -290,15 +232,16 @@ async function heartbeatStream(ctx: MutationCtx, args: { streamId: Id<"streaming
     streamId: args.streamId,
   });
   await ctx.db.patch(args.streamId, {
-    state: { kind: "streaming", lastHeartbeat: Date.now(), timeoutFnId },
+    state: { kind: "streaming", lockId: args.lockId, lastHeartbeat: Date.now(), timeoutFnId },
   });
+  return stream;
 }
 
 /**
  * Handle stream timeout (internal)
  */
 export const timeoutStream = internalMutation({
-  args: { streamId: v.id("streaming_messages") },
+  args: { streamId: v.id("streams") },
   returns: v.null(),
   handler: async (ctx, args) => {
     const stream = await ctx.db.get(args.streamId);
@@ -306,9 +249,7 @@ export const timeoutStream = internalMutation({
       console.warn("Stream not found or not streaming", args.streamId);
       return null;
     }
-    await ctx.db.patch(args.streamId, {
-      state: { kind: "aborted", reason: "timeout" },
-    });
+    await cancelStream(ctx, stream, "timeout");
     return null;
   },
 });
@@ -318,21 +259,21 @@ export const timeoutStream = internalMutation({
  */
 export const deleteStreamAsync = mutation({
   args: {
-    streamId: v.id("streaming_messages"),
+    streamId: v.id("streams"),
     cursor: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const deltas = await ctx.db
-      .query("stream_deltas")
-      .withIndex("by_stream_start_end", (q) => q.eq("streamId", args.streamId))
-      .take(MAX_DELTAS_PER_REQUEST);
+      .query("deltas")
+      .withIndex("by_stream", (q) => q.eq("streamId", args.streamId))
+      .take(100);
 
     for (const delta of deltas) {
       await ctx.db.delete(delta._id);
     }
 
-    if (deltas.length < MAX_DELTAS_PER_REQUEST) {
+    if (deltas.length < 100) {
       // All deltas deleted, now delete the stream
       const stream = await ctx.db.get(args.streamId);
       if (stream) {
@@ -354,3 +295,92 @@ export const deleteStreamAsync = mutation({
     return null;
   },
 });
+
+const vStreamingMessageUpdates = v.object({
+  messages: v.array(
+    v.object({
+      msgId: v.string(),
+      parts: v.array(v.any()),
+    }),
+  ),
+});
+
+export type StreamingMessageUpdates = Infer<typeof vStreamingMessageUpdates>;
+
+export const queryStreamingMessageUpdates = query({
+  args: {
+    threadId: v.id("threads"),
+    fromSeq: v.optional(v.number()),
+  },
+  returns: vStreamingMessageUpdates,
+  handler: async (ctx, args): Promise<StreamingMessageUpdates> => {
+    const streams = await ctx.db
+      .query("streams")
+      .withIndex("by_thread", (q) => q.eq("threadId", args.threadId))
+      .filter((q) => q.gte(q.field("seq"), args.fromSeq ?? 0))
+      .order("asc")
+      .collect();
+
+    const result: Array<{ msgId: string; parts: unknown[] }> = [];
+    const allIds = new Set<string>();
+    const byStreamIds: Map<string, Map<string, string>> = new Map();
+
+    for (const stream of streams) {
+      const deltas = await ctx.db
+        .query("deltas")
+        .withIndex("by_stream", (q) => q.eq("streamId", stream._id))
+        .order("asc")
+        .collect();
+      for (const delta of deltas) {
+        if (!byStreamIds.has(delta.msgId)) byStreamIds.set(delta.msgId, new Map());
+        const index = result.findIndex((m) => m.msgId === delta.msgId);
+        const parts = replacePartIds(delta.parts, byStreamIds.get(delta.msgId)!, allIds);
+        for (const part of parts) {
+          (part as any).seq = stream.seq;
+        }
+        if (index === -1) {
+          result.push({ msgId: delta.msgId, parts });
+        } else {
+          result[index]!.parts.push(...parts);
+        }
+      }
+    }
+
+    return {
+      messages: result,
+    };
+  },
+});
+
+export function replacePartIds(
+  parts: UIMessageChunk[],
+  newIds: Map<string, string>,
+  prevIds: Set<string>,
+): UIMessageChunk[] {
+  let idSeq = 0;
+  const generateId = () => {
+    while (true) {
+      const id = `${idSeq++}`;
+      if (!prevIds.has(id)) {
+        prevIds.add(id);
+        return id;
+      }
+    }
+  };
+
+  const newParts = parts.map((part) => {
+    if ("id" in part) {
+      const id = part.id;
+      if (id) {
+        if (newIds.has(id)) {
+          return { ...part, id: newIds.get(id)! };
+        }
+        const newId = generateId();
+        newIds.set(id, newId);
+        return { ...part, id: newId };
+      }
+    }
+    return part;
+  });
+  return newParts;
+}

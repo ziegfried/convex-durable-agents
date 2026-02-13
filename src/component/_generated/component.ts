@@ -51,6 +51,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           args: any;
           callback: string;
+          msgId: string;
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -64,6 +65,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           args: any;
           handler: string;
+          msgId: string;
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -77,18 +79,38 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         {
-          content: string | Array<any>;
-          role: "system" | "user" | "assistant" | "tool";
+          committedSeq?: number;
+          msg: {
+            id?: string;
+            metadata?: any;
+            parts: Array<any>;
+            role: "system" | "user" | "assistant";
+          };
+          overwrite?: boolean;
+          preserveToolOutputs?: boolean;
           threadId: string;
         },
+        string,
+        Name
+      >;
+      appendPart: FunctionReference<
+        "mutation",
+        "internal",
+        { msgId: string; part: any; threadId: string },
+        null,
+        Name
+      >;
+      appendToolOutcomePart: FunctionReference<
+        "mutation",
+        "internal",
         {
-          _creationTime: number;
-          _id: string;
-          content: string | Array<any>;
-          order: number;
-          role: "system" | "user" | "assistant" | "tool";
+          msgId: string;
+          part: any;
           threadId: string;
+          throwOnMissingToolCallPart?: boolean;
+          toolCallId: string;
         },
+        null,
         Name
       >;
       list: FunctionReference<
@@ -98,9 +120,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Array<{
           _creationTime: number;
           _id: string;
-          content: string | Array<any>;
-          order: number;
-          role: "system" | "user" | "assistant" | "tool";
+          committedSeq?: number;
+          id: string;
+          metadata?: any;
+          parts: Array<any>;
+          role: "system" | "user" | "assistant";
           threadId: string;
         }>,
         Name
@@ -110,41 +134,34 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       abort: FunctionReference<
         "mutation",
         "internal",
-        {
-          finalDelta?: {
-            end: number;
-            parts: Array<any>;
-            start: number;
-            streamId: string;
-          };
-          reason: string;
-          streamId: string;
-        },
-        boolean,
-        Name
-      >;
-      abortByOrder: FunctionReference<
-        "mutation",
-        "internal",
-        { order: number; reason: string; threadId: string },
+        { reason: string; streamId: string },
         boolean,
         Name
       >;
       addDelta: FunctionReference<
         "mutation",
         "internal",
-        { end: number; parts: Array<any>; start: number; streamId: string },
+        {
+          lockId: string;
+          msgId: string;
+          parts: Array<any>;
+          seq: number;
+          streamId: string;
+        },
         boolean,
+        Name
+      >;
+      cancelInactiveStreams: FunctionReference<
+        "mutation",
+        "internal",
+        { activeStreamId: string; threadId: string },
+        null,
         Name
       >;
       create: FunctionReference<
         "mutation",
         "internal",
-        {
-          format?: "UIMessageChunk" | "TextStreamPart";
-          order: number;
-          threadId: string;
-        },
+        { threadId: string },
         string,
         Name
       >;
@@ -158,48 +175,29 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       finish: FunctionReference<
         "mutation",
         "internal",
-        {
-          finalDelta?: {
-            end: number;
-            parts: Array<any>;
-            start: number;
-            streamId: string;
-          };
-          streamId: string;
-        },
+        { streamId: string },
         null,
         Name
       >;
-      list: FunctionReference<
+      isAlive: FunctionReference<
         "query",
         "internal",
-        {
-          startOrder?: number;
-          statuses?: Array<"streaming" | "finished" | "aborted">;
-          threadId: string;
-        },
-        Array<{
-          format?: "UIMessageChunk" | "TextStreamPart";
-          order: number;
-          status: "streaming" | "finished" | "aborted";
-          streamId: string;
-          threadId: string;
-        }>,
+        { streamId: string },
+        boolean,
         Name
       >;
-      listDeltas: FunctionReference<
+      queryStreamingMessageUpdates: FunctionReference<
         "query",
         "internal",
-        {
-          cursors: Array<{ cursor: number; streamId: string }>;
-          threadId: string;
-        },
-        Array<{
-          end: number;
-          parts: Array<any>;
-          start: number;
-          streamId: string;
-        }>,
+        { fromSeq?: number; threadId: string },
+        { messages: Array<{ msgId: string; parts: Array<any> }> },
+        Name
+      >;
+      take: FunctionReference<
+        "mutation",
+        "internal",
+        { lockId: string; streamId: string; threadId: string },
+        any,
         Name
       >;
     };
@@ -208,7 +206,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         { threadId: string },
-        null,
+        boolean,
         Name
       >;
       create: FunctionReference<
@@ -321,12 +319,19 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       create: FunctionReference<
         "mutation",
         "internal",
-        { args: any; threadId: string; toolCallId: string; toolName: string },
+        {
+          args: any;
+          msgId: string;
+          threadId: string;
+          toolCallId: string;
+          toolName: string;
+        },
         {
           _creationTime: number;
           _id: string;
           args: any;
           error?: string;
+          msgId: string;
           result?: any;
           threadId: string;
           toolCallId: string;
@@ -343,6 +348,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _id: string;
           args: any;
           error?: string;
+          msgId: string;
           result?: any;
           threadId: string;
           toolCallId: string;
@@ -359,6 +365,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _id: string;
           args: any;
           error?: string;
+          msgId: string;
           result?: any;
           threadId: string;
           toolCallId: string;
@@ -375,6 +382,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _id: string;
           args: any;
           error?: string;
+          msgId: string;
           result?: any;
           threadId: string;
           toolCallId: string;
