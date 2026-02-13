@@ -39,7 +39,7 @@ export const invokeGetTemperature = internalAction({
     args: v.object({ location: v.string() }),
   },
   returns: v.null(),
-  handler: async (ctx, { args, toolCallId }) => {
+  handler: async (ctx, { args, toolCallId, threadId }) => {
     console.log(`Invoking get temperature for: ${args.location}`);
 
     // Simulate an async operation - in real use this might:
@@ -50,7 +50,8 @@ export const invokeGetTemperature = internalAction({
     // For demo, we schedule the result to be added after a delay
     await ctx.scheduler.runAfter(2000, internal.tools.weather.addTemperatureResult, {
       location: args.location,
-      toolCallId: toolCallId,
+      toolCallId,
+      threadId,
     });
 
     return null;
@@ -61,7 +62,7 @@ export const invokeGetTemperature = internalAction({
  * Add temperature result after async processing
  */
 export const addTemperatureResult = internalAction({
-  args: { location: v.string(), toolCallId: v.string() },
+  args: { location: v.string(), toolCallId: v.string(), threadId: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
     console.log(`Adding temperature result for: ${args.location}`);
@@ -78,12 +79,14 @@ export const addTemperatureResult = internalAction({
     if (temp !== undefined) {
       await ctx.runMutation(api.chat.addToolResult, {
         toolCallId: args.toolCallId,
+        threadId: args.threadId,
         result: { temperature_f: temp },
       });
     } else {
       await ctx.runMutation(api.chat.addToolError, {
         toolCallId: args.toolCallId,
         error: "Location not found",
+        threadId: args.threadId,
       });
     }
 

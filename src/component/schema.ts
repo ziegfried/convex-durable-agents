@@ -70,7 +70,7 @@ const schema = defineSchema({
     onStatusChangeHandle: v.optional(v.string()),
     // Monotonically increasing sequence number for streams of this thread
     seq: v.number(),
-  }),
+  }).index("by_status", ["status"]),
 
   // AI SDK compatible message storage
   messages: defineTable({
@@ -92,11 +92,21 @@ const schema = defineSchema({
     msgId: v.string(),
     toolCallId: v.string(),
     toolName: v.string(),
+    callback: v.optional(v.string()),
+    callbackAttempt: v.optional(v.number()),
+    callbackLastError: v.optional(v.string()),
+    timeoutMs: v.optional(v.union(v.number(), v.null())),
+    expiresAt: v.optional(v.union(v.number(), v.null())),
+    timeoutFnId: v.optional(v.id("_scheduled_functions")),
     args: v.any(),
     result: v.optional(v.any()),
     error: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("completed"), v.literal("failed")),
+    saveDelta: v.optional(v.boolean()),
   })
     .index("by_thread", ["threadId"])
+    .index("by_status", ["threadId", "status"])
+    .index("by_thread_tool_call_id", ["threadId", "toolCallId"])
     .index("by_tool_call_id", ["toolCallId"]),
 
   streams: defineTable({

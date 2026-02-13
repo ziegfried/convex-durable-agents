@@ -1,8 +1,58 @@
 import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
+import { Logger } from "../logger.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { internalQuery, mutation, query } from "./_generated/server.js";
 import { vThreadStatus } from "./schema.js";
+
+const logger = new Logger("threads");
+const FINALIZER_MISMATCH_ALERT_WINDOW_MS = 5 * 60 * 1000;
+const FINALIZER_MISMATCH_ALERT_THRESHOLD = 3;
+
+type FinalizerMismatchWindowState = {
+  windowStartedAt: number;
+  count: number;
+  lastAlertAt: number | null;
+};
+
+const finalizerMismatchWindows = new Map<string, FinalizerMismatchWindowState>();
+
+export function resetFinalizerMismatchAlertState(): void {
+  finalizerMismatchWindows.clear();
+}
+
+export function trackFinalizerMismatchRate(
+  threadId: string,
+  now: number,
+): { windowStartedAt: number; count: number; shouldAlert: boolean } {
+  const existing = finalizerMismatchWindows.get(threadId);
+  let state: FinalizerMismatchWindowState;
+  if (!existing || now - existing.windowStartedAt >= FINALIZER_MISMATCH_ALERT_WINDOW_MS) {
+    state = {
+      windowStartedAt: now,
+      count: 1,
+      lastAlertAt: null,
+    };
+  } else {
+    state = {
+      windowStartedAt: existing.windowStartedAt,
+      count: existing.count + 1,
+      lastAlertAt: existing.lastAlertAt,
+    };
+  }
+  const shouldAlert =
+    state.count >= FINALIZER_MISMATCH_ALERT_THRESHOLD &&
+    (state.lastAlertAt == null || now - state.lastAlertAt >= FINALIZER_MISMATCH_ALERT_WINDOW_MS);
+  if (shouldAlert) {
+    state.lastAlertAt = now;
+  }
+  finalizerMismatchWindows.set(threadId, state);
+  return {
+    windowStartedAt: state.windowStartedAt,
+    count: state.count,
+    shouldAlert,
+  };
+}
 
 // Public thread shape
 export type ThreadDoc = {
@@ -156,10 +206,17 @@ export const setStatus = mutation({
       throw new Error(`Thread ${args.threadId} not found`);
     }
     const previousStatus = thread.status;
-    await ctx.db.patch(args.threadId, {
+
+    console.log(
+      `SET STATUS ${args.threadId} ${previousStatus} -> ${args.status} active=${args.streamId ?? "unchanged"}`,
+    );
+    const patch: { status: Doc<"threads">["status"]; activeStream?: Id<"streams"> | null } = {
       status: args.status,
-      activeStream: args.streamId,
-    });
+    };
+    if (args.streamId !== undefined) {
+      patch.activeStream = args.streamId;
+    }
+    await ctx.db.patch(args.threadId, patch);
     if (thread.onStatusChangeHandle && previousStatus !== args.status) {
       await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
         threadId: args.threadId,
@@ -174,12 +231,105 @@ export const setStatus = mutation({
 export const clearStreamId = mutation({
   args: {
     threadId: v.id("threads"),
+    streamId: v.optional(v.id("streams")),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
+    console.log(`CLEAR STREAM ID ${args.threadId} continue=${thread?.continue}`);
+    if (args.streamId != null && thread?.activeStream !== args.streamId) {
+      console.warn(
+        `Thread ${args.threadId} active stream mismatch: ${thread?.activeStream} !== ${args.streamId} while trying to clear stream ID`,
+      );
+      return thread?.continue ?? false;
+    }
     await ctx.db.patch(args.threadId, { activeStream: null });
     return thread?.continue ?? false;
+  },
+});
+
+export const finalizeStreamTurn = mutation({
+  args: {
+    threadId: v.id("threads"),
+    streamId: v.id("streams"),
+    status: v.optional(vThreadStatus),
+    expectedSeq: v.optional(v.number()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+    if (thread.activeStream !== args.streamId) {
+      const staleStream = await ctx.db.get(args.streamId);
+      const activeStream = thread.activeStream ? await ctx.db.get(thread.activeStream) : null;
+      const rate = trackFinalizerMismatchRate(args.threadId, Date.now());
+      const telemetry = {
+        threadId: args.threadId,
+        threadSeq: thread.seq,
+        staleStreamId: args.streamId,
+        staleStreamSeq: staleStream?.seq ?? null,
+        staleStreamState: staleStream?.state.kind ?? "missing",
+        activeStreamId: thread.activeStream ?? null,
+        activeStreamSeq: activeStream?.seq ?? null,
+        mismatchCountInWindow: rate.count,
+        mismatchWindowMs: FINALIZER_MISMATCH_ALERT_WINDOW_MS,
+        mismatchWindowStartedAt: rate.windowStartedAt,
+      };
+      if (staleStream?.state.kind === "aborted" && staleStream.state.reason === "expired") {
+        logger.warn(
+          "finalizeStreamTurn observed stale finalizer after continueStream cancelled stream as expired",
+          telemetry,
+        );
+      }
+      logger.warn("finalizeStreamTurn active stream mismatch", telemetry);
+      if (rate.shouldAlert) {
+        logger.error("finalizeStreamTurn mismatch rate exceeded threshold", {
+          ...telemetry,
+          mismatchAlertThreshold: FINALIZER_MISMATCH_ALERT_THRESHOLD,
+        });
+      }
+      return false;
+    }
+
+    const activeStream = await ctx.db.get(args.streamId);
+    if (!activeStream) {
+      logger.warn("finalizeStreamTurn active stream not found", {
+        threadId: args.threadId,
+        streamId: args.streamId,
+      });
+      return false;
+    }
+
+    if (args.expectedSeq != null && activeStream.seq !== args.expectedSeq) {
+      logger.warn("finalizeStreamTurn sequence mismatch", {
+        threadId: args.threadId,
+        streamId: args.streamId,
+        expectedSeq: args.expectedSeq,
+        actualSeq: activeStream.seq,
+        threadSeq: thread.seq,
+      });
+      return false;
+    }
+
+    const previousStatus = thread.status;
+    const nextStatus = args.status ?? previousStatus;
+    const shouldContinue = thread.continue ?? false;
+
+    await ctx.db.patch(args.threadId, {
+      status: nextStatus,
+      activeStream: null,
+      continue: false,
+    });
+    if (thread.onStatusChangeHandle && previousStatus !== nextStatus) {
+      await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
+        threadId: args.threadId,
+        status: nextStatus,
+        previousStatus,
+      });
+    }
+    return shouldContinue;
   },
 });
 
@@ -206,6 +356,22 @@ export const list = query({
     const limit = args.limit ?? 100;
     const threads = await ctx.db.query("threads").order("desc").take(limit);
     return threads.map(publicThread);
+  },
+});
+
+export const listIncomplete = query({
+  args: {},
+  returns: v.array(v.id("threads")),
+  handler: async (ctx, _args) => {
+    const awaiting = await ctx.db
+      .query("threads")
+      .withIndex("by_status", (q) => q.eq("status", "awaiting_tool_results"))
+      .collect();
+    const streaming = await ctx.db
+      .query("threads")
+      .withIndex("by_status", (q) => q.eq("status", "streaming"))
+      .collect();
+    return [...awaiting.map((t) => t._id), ...streaming.map((t) => t._id)];
   },
 });
 

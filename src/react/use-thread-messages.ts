@@ -171,7 +171,7 @@ export function useMessages(
   const thread = useQuery(threadQuery, args === "skip" ? "skip" : args);
   const messages = useMemo(() => {
     const persisted = rawMessages?.map((m) => addConvexMetadata(m)) ?? [];
-    return persisted; // withActiveAssistantStatus(persisted, thread?.status);
+    return persisted;
   }, [rawMessages]);
 
   return {

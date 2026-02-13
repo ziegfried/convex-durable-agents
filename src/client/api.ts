@@ -91,8 +91,8 @@ export type AgentApi<V extends FunctionVisibility = "public"> = {
   streamUpdates: RegisteredQuery<V, { threadId: string; fromSeq?: number }, StreamingMessageUpdates>;
   listThreads: RegisteredQuery<V, { limit?: number }, ThreadDoc[]>;
   deleteThread: RegisteredMutation<V, { threadId: string }, null>;
-  addToolResult: RegisteredMutation<V, { toolCallId: string; result: unknown }, null>;
-  addToolError: RegisteredMutation<V, { toolCallId: string; error: string }, null>;
+  addToolResult: RegisteredMutation<V, { threadId: string; toolCallId: string; result: unknown }, null>;
+  addToolError: RegisteredMutation<V, { threadId: string; toolCallId: string; error: string }, null>;
 };
 
 export type AgentApiOptions = {
@@ -330,12 +330,14 @@ function createAgentApi(
     }),
     addToolResult: mutation({
       args: {
+        threadId: v.string(),
         toolCallId: v.string(),
         result: v.any(),
       },
       returns: v.null(),
       handler: async (ctx, args) => {
-        await ctx.runMutation(component.agent.addToolResult, {
+        await ctx.runMutation(component.tool_calls.addToolResult, {
+          threadId: args.threadId,
           toolCallId: args.toolCallId,
           result: args.result,
         });
@@ -344,12 +346,14 @@ function createAgentApi(
     }),
     addToolError: mutation({
       args: {
+        threadId: v.string(),
         toolCallId: v.string(),
         error: v.string(),
       },
       returns: v.null(),
       handler: async (ctx, args) => {
-        await ctx.runMutation(component.agent.addToolError, {
+        await ctx.runMutation(component.tool_calls.addToolError, {
+          threadId: args.threadId,
           toolCallId: args.toolCallId,
           error: args.error,
         });

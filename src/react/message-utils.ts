@@ -1,4 +1,4 @@
-import type { UIMessage as AIUIMessage } from "ai";
+import type { UIMessage } from "ai";
 import type { ThreadStatus } from "./types";
 
 // Metadata type for custom fields in UIMessage
@@ -10,7 +10,7 @@ export type ConvexUIMessageMetadata = {
 };
 
 // // UI-friendly message format using AI SDK's UIMessage with custom metadata
-export type UIMessageWithConvexMetadata = AIUIMessage<ConvexUIMessageMetadata>;
+export type UIMessageWithConvexMetadata = UIMessage<ConvexUIMessageMetadata>;
 
 export function deepEquals(a: any, b: any): boolean {
   if (a === b) return true;

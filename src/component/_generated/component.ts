@@ -24,20 +24,6 @@ import type { FunctionReference } from "convex/server";
 export type ComponentApi<Name extends string | undefined = string | undefined> =
   {
     agent: {
-      addToolError: FunctionReference<
-        "mutation",
-        "internal",
-        { error: string; toolCallId: string },
-        null,
-        Name
-      >;
-      addToolResult: FunctionReference<
-        "mutation",
-        "internal",
-        { result: any; toolCallId: string },
-        null,
-        Name
-      >;
       continueStream: FunctionReference<
         "mutation",
         "internal",
@@ -45,31 +31,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         null,
         Name
       >;
-      scheduleAsyncToolCall: FunctionReference<
-        "mutation",
+      tryContinueAllThreads: FunctionReference<
+        "action",
         "internal",
-        {
-          args: any;
-          callback: string;
-          msgId: string;
-          threadId: string;
-          toolCallId: string;
-          toolName: string;
-        },
-        null,
-        Name
-      >;
-      scheduleToolCall: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          args: any;
-          handler: string;
-          msgId: string;
-          threadId: string;
-          toolCallId: string;
-          toolName: string;
-        },
+        {},
         null,
         Name
       >;
@@ -87,30 +52,25 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             role: "system" | "user" | "assistant";
           };
           overwrite?: boolean;
-          preserveToolOutputs?: boolean;
           threadId: string;
         },
         string,
         Name
       >;
-      appendPart: FunctionReference<
+      applyToolOutcomes: FunctionReference<
         "mutation",
         "internal",
-        { msgId: string; part: any; threadId: string },
-        null,
-        Name
-      >;
-      appendToolOutcomePart: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          msgId: string;
-          part: any;
+        { threadId: string },
+        Array<{
+          _creationTime: number;
+          _id: string;
+          committedSeq?: number;
+          id: string;
+          metadata?: any;
+          parts: Array<any>;
+          role: "system" | "user" | "assistant";
           threadId: string;
-          throwOnMissingToolCallPart?: boolean;
-          toolCallId: string;
-        },
-        null,
+        }>,
         Name
       >;
       list: FunctionReference<
@@ -179,10 +139,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         null,
         Name
       >;
-      isAlive: FunctionReference<
-        "query",
+      heartbeat: FunctionReference<
+        "mutation",
         "internal",
-        { streamId: string },
+        { lockId: string; streamId: string },
         boolean,
         Name
       >;
@@ -205,7 +165,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       clearStreamId: FunctionReference<
         "mutation",
         "internal",
-        { threadId: string },
+        { streamId?: string; threadId: string },
         boolean,
         Name
       >;
@@ -233,6 +193,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           toolExecutionWorkpoolEnqueueAction?: string;
           workpoolEnqueueAction?: string;
         },
+        Name
+      >;
+      finalizeStreamTurn: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          expectedSeq?: number;
+          status?:
+            | "streaming"
+            | "awaiting_tool_results"
+            | "completed"
+            | "failed"
+            | "stopped";
+          streamId: string;
+          threadId: string;
+        },
+        boolean,
         Name
       >;
       get: FunctionReference<
@@ -277,6 +254,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         }>,
         Name
       >;
+      listIncomplete: FunctionReference<
+        "query",
+        "internal",
+        {},
+        Array<string>,
+        Name
+      >;
       remove: FunctionReference<
         "mutation",
         "internal",
@@ -316,12 +300,28 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     tool_calls: {
+      addToolError: FunctionReference<
+        "mutation",
+        "internal",
+        { error: string; threadId: string; toolCallId: string },
+        null,
+        Name
+      >;
+      addToolResult: FunctionReference<
+        "mutation",
+        "internal",
+        { result: any; threadId: string; toolCallId: string },
+        null,
+        Name
+      >;
       create: FunctionReference<
         "mutation",
         "internal",
         {
           args: any;
+          callback?: string;
           msgId: string;
+          saveDelta: boolean;
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -390,6 +390,36 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         }>,
         Name
       >;
+      scheduleAsyncToolCall: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          args: any;
+          callback: string;
+          msgId: string;
+          saveDelta: boolean;
+          threadId: string;
+          toolCallId: string;
+          toolName: string;
+        },
+        null,
+        Name
+      >;
+      scheduleToolCall: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          args: any;
+          handler: string;
+          msgId: string;
+          saveDelta: boolean;
+          threadId: string;
+          toolCallId: string;
+          toolName: string;
+        },
+        null,
+        Name
+      >;
       setError: FunctionReference<
         "mutation",
         "internal",
@@ -401,6 +431,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         { id: string; result: any },
+        null,
+        Name
+      >;
+      setToolCallTimeout: FunctionReference<
+        "mutation",
+        "internal",
+        { threadId: string; timeout: number | null; toolCallId: string },
         null,
         Name
       >;

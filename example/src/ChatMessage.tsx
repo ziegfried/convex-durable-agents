@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { SmoothText } from "./SmoothText";
-import { TextUIPart, UIMessage, UIMessagePart } from "ai";
+import { UIMessagePart } from "ai";
 import { ThreadStatus, UIMessageWithConvexMetadata } from "../../dist/react";
 
 type ToolCallUIPart = Extract<UIMessagePart<any, any>, { type: `tool-${string}` }>;
@@ -255,9 +255,11 @@ export function ChatMessage({ message }: { message: UIMessageWithConvexMetadata 
           borderRadius: "1rem",
           backgroundColor: isUser ? "#3b82f6" : "#f3f4f6",
           color: isUser ? "white" : "black",
+          whiteSpace: "pre-wrap",
         }}
       >
-        {message.parts.map((part, index) => <MessagePartDisplay key={index} part={part} isStreaming={!isUser && index === message.parts.length - 1} />)}
+        {message.parts.map((part, index) => (
+          <MessagePartDisplay key={index} part={part} isStreaming={!isUser && isStreaming && index === message.parts.length - 1} />))}
 
         {/* Loading indicator */}
         {isStreaming && (
