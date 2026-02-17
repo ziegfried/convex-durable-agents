@@ -1,6 +1,7 @@
 import { useMutation } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useCallback } from "react";
+import type { MessageDoc } from "./types";
 import {
   type MessagesQuery,
   type StreamingMessageUpdatesQuery,
@@ -14,6 +15,20 @@ type SendMessageMutation = FunctionReference<"mutation", "public", { threadId: s
 type StopThreadMutation = FunctionReference<"mutation", "public", { threadId: string }, null>;
 
 type ResumeThreadMutation = FunctionReference<"mutation", "public", { threadId: string; prompt?: string }, null>;
+
+function createOptimisticMessageDoc({ prompt, threadId }: { threadId: string; prompt: string }): MessageDoc {
+  const now = Date.now();
+  const suffix = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id = `optimistic-${suffix}`;
+  return {
+    _id: id,
+    _creationTime: now,
+    threadId,
+    id,
+    role: "user",
+    parts: [{ type: "text", text: prompt }],
+  };
+}
 
 export type UseAgentChatOptions = {
   /** Query to get thread status */
@@ -96,7 +111,13 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   });
 
   // Create mutation functions
-  const sendMessageMutation = useMutation(sendMessageRef);
+  const sendMessageMutation = useMutation(sendMessageRef).withOptimisticUpdate((localStore, args) => {
+    const currentMessages = localStore.getQuery(listMessages, { threadId: args.threadId }) ?? [];
+    localStore.setQuery(listMessages, { threadId: args.threadId }, [
+      ...currentMessages,
+      createOptimisticMessageDoc(args),
+    ]);
+  });
   const stopThreadMutation = useMutation(stopThreadRef);
   const resumeThreadMutation = useMutation(resumeThreadRef);
 
