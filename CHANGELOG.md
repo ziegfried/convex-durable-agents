@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Optimistic update when sending chat messages
+
 ## 0.2.1
 
 - Minor stream handling and tool calling improvements
