@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Enhance message handling and streaming functionality
+
 ## 0.2.2
 
 - Optimistic update when sending chat messages
