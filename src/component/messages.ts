@@ -44,12 +44,21 @@ export const vMessageDoc = vUIMessage.extend({
 export const add = mutation({
   args: {
     threadId: v.id("threads"),
+    streaming: v.optional(v.boolean()),
     msg: vUIMessageOptId,
     overwrite: v.optional(v.boolean()),
     committedSeq: v.optional(v.number()),
   },
   returns: v.id("messages"),
   handler: async (ctx, args): Promise<Id<"messages">> => {
+    if (!args.streaming) {
+      const thread = await ctx.db.get(args.threadId);
+      if (!thread) throw new Error(`Thread ${args.threadId} not found`);
+      if (thread.status === "streaming" || thread.status === "awaiting_tool_results") {
+        throw new Error(`Thread ${args.threadId} is ${thread.status}, cannot add message`);
+      }
+    }
+
     const existingMessage = args.msg.id
       ? await ctx.db
           .query("messages")

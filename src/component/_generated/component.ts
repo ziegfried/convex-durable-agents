@@ -52,6 +52,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             role: "system" | "user" | "assistant";
           };
           overwrite?: boolean;
+          streaming?: boolean;
           threadId: string;
         },
         string,

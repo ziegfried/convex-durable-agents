@@ -6,6 +6,7 @@ import { api, internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { internalAction, internalMutation, type MutationCtx, mutation, query } from "./_generated/server.js";
 import { enqueueAction } from "./agent.js";
+import { isAlive } from "./streams.js";
 
 const logger = new Logger("tool_calls");
 const SECOND = 1000;
@@ -648,11 +649,17 @@ export const onToolComplete = internalMutation({
     });
 
     if (pending.length === 0) {
-      logger.debug("onToolComplete: all tool calls complete, scheduling continueStream");
-      // All tool calls complete - schedule continuation
-      await ctx.scheduler.runAfter(0, api.agent.continueStream, {
-        threadId: args.threadId,
-      });
+      const activeStream = thread.activeStream ? await ctx.db.get(thread.activeStream) : null;
+      if (isAlive(activeStream)) {
+        logger.debug("onToolComplete: all tool calls complete, active stream still alive, setting continue flag");
+        await ctx.db.patch(args.threadId, { continue: true });
+      } else {
+        logger.debug("onToolComplete: all tool calls complete, scheduling continueStream");
+        // All tool calls complete - schedule continuation
+        await ctx.scheduler.runAfter(0, api.agent.continueStream, {
+          threadId: args.threadId,
+        });
+      }
     } else {
       logger.debug(`onToolComplete: ${pending.length} tool calls still pending`);
     }

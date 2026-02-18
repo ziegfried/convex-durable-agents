@@ -287,10 +287,6 @@ export function streamHandlerAction(
         }
         logger.debug(`Stream iteration complete (toolCallCount=${toolCallCount}, finishReason=${finishReason})`);
 
-        // Finish the delta stream
-        logger.debug("Finishing delta stream...");
-        await streamer.finish();
-
         if (!responseMessage) {
           throw new Error("No response message");
         }
@@ -322,6 +318,7 @@ export function streamHandlerAction(
           );
           await ctx.runMutation(component.messages.add, {
             threadId: args.threadId,
+            streaming: true,
             msg: responseMessage,
             overwrite: true,
             committedSeq: stream.seq,
@@ -356,6 +353,10 @@ export function streamHandlerAction(
         } else {
           logger.debug(`Unhandled end state: toolCallCount=${toolCallCount}, finishReason=${finishReason}`);
         }
+
+        // Mark the stream finished only after all end-of-turn writes are persisted.
+        logger.debug("Finishing delta stream...");
+        await streamer.finish();
 
         logger.debug("Stream handler completed successfully");
         return null;

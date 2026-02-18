@@ -199,7 +199,6 @@ function createAgentApi(
       returns: v.null(),
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
-        await checkThreadIsIdle(component, ctx, args.threadId as Id<"threads">);
         await ctx.runMutation(component.messages.add, {
           threadId: args.threadId,
           msg: { role: "user", parts: [{ type: "text", text: args.prompt }] },
@@ -238,13 +237,13 @@ function createAgentApi(
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
         const threadId = args.threadId as Id<"threads">;
-        await checkThreadIsIdle(component, ctx, threadId);
-
         if (args.prompt) {
           await ctx.runMutation(component.messages.add, {
             threadId,
             msg: { role: "user", parts: [{ type: "text", text: args.prompt }] },
           });
+        } else {
+          await checkThreadIsIdle(component, ctx, threadId);
         }
         await ctx.runMutation(component.threads.setStopSignal, {
           threadId,
