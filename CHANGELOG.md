@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Automatic retries for common failures/interruptions of AI streams
+- Automatic retries of failed/interrupted tool calls (opt-in)
+
 ## 0.2.3
 
 - Enhance message handling and streaming functionality
