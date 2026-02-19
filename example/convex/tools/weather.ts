@@ -13,6 +13,8 @@ export const getWeather = internalAction({
     // Simulate a weather API call
     console.log(`Getting weather for: ${args.location}`);
 
+    if (Math.random() < 0.8) throw new Error('ECONNREFUSED');
+
     // In a real implementation, this would call a weather API
     // For demo purposes, return mock data based on location
     const weatherData: Record<string, { weather: string }> = {

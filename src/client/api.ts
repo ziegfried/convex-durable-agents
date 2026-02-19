@@ -36,10 +36,23 @@ async function checkThreadIsIdle(component: ComponentApi, ctx: MutationCtx, thre
   if (!thread) {
     throw new Error(`Thread ${threadId} not found`);
   }
+  if (thread.retryState) {
+    throw new Error(`Thread ${threadId} has retry pending; stop the thread to interrupt the retry flow`);
+  }
   switch (thread.status) {
     case "awaiting_tool_results":
     case "streaming":
       throw new Error(`Thread ${threadId} status=${thread.status}, cannot resume`);
+  }
+}
+
+async function assertNoRetryPending(component: ComponentApi, ctx: MutationCtx, threadId: Id<"threads">): Promise<void> {
+  const thread = await ctx.runQuery(component.threads.get, { threadId });
+  if (!thread) {
+    throw new Error(`Thread ${threadId} not found`);
+  }
+  if (thread.retryState) {
+    throw new Error(`Thread ${threadId} has retry pending; stop the thread to interrupt the retry flow`);
   }
 }
 
@@ -199,15 +212,17 @@ function createAgentApi(
       returns: v.null(),
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
+        const threadId = args.threadId as Id<"threads">;
+        await assertNoRetryPending(component, ctx, threadId);
         await ctx.runMutation(component.messages.add, {
-          threadId: args.threadId,
+          threadId,
           msg: { role: "user", parts: [{ type: "text", text: args.prompt }] },
         });
         await ctx.runMutation(component.threads.resume, {
-          threadId: args.threadId,
+          threadId,
         });
         await ctx.scheduler.runAfter(0, component.agent.continueStream, {
-          threadId: args.threadId,
+          threadId,
         });
         return null;
       },
@@ -237,6 +252,7 @@ function createAgentApi(
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
         const threadId = args.threadId as Id<"threads">;
+        await assertNoRetryPending(component, ctx, threadId);
         if (args.prompt) {
           await ctx.runMutation(component.messages.add, {
             threadId,
@@ -262,9 +278,13 @@ function createAgentApi(
       returns: v.null(),
       handler: async (ctx, args) => {
         if (authorize) await authorize(ctx, args.threadId);
+        const threadId = args.threadId as Id<"threads">;
         await ctx.runMutation(component.threads.setStopSignal, {
-          threadId: args.threadId as Id<"threads">,
+          threadId,
           stopSignal: true,
+        });
+        await ctx.runMutation(component.threads.clearRetryState, {
+          threadId,
         });
         return null;
       },

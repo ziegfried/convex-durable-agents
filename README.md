@@ -6,7 +6,7 @@ A Convex component for building durable AI agents with an async tool loop. The g
 way to build AI agents that can run indefinitely and survive failures and restarts. It provides some of the
 functionality of the [Convex Agents Component](https://www.convex.dev/components/agent) (such as persistent streaming),
 while deliberately leaving out some of the more advanced features (context management, RAG, rate limiting, etc.). The
-component is built on top of the [AI SDK v6](https://ai-sdk.dev/) SDK and aims to expose its full `streamText` API with
+component is built on top of the [AI SDK v6](https://ai-sdk.dev/) and aims to expose its full `streamText` API with
 persistence and durable execution.
 
 **Note:** This component is still in early development and is not yet ready for production use. The API will very likely
@@ -16,13 +16,9 @@ change before a first stable release.
 
 - **Async Execution**: Agent tool loop is executed asynchronously to avoid time limits of convex actions
 - **Tool Execution**: via convex actions - support for both sync and async tools
-- **Automatic Retries**: Failed tool calls are automatically retried
-- **Workpool Support**: Optionally route agent and tool execution through `@convex-dev/workpool` for parallelism control
-  and retry mechanisms
-
-## Roadmap
-
+- **Automatic Retries**: Failed tool calls are automatically retried (opt-in)
 - **Durable Execution**: Agent tool loops survive crashes and dev server restarts
+- **Workpool Support**: Optionally route agent and tool execution through `@convex-dev/workpool` for parallelism control
 
 ## Installation
 
@@ -66,6 +62,10 @@ export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
       description: "Get weather for a location",
       args: z.object({ location: z.string() }),
       handler: internal.tools.weather.getWeather,
+      retry: {
+        enabled: true,
+        maxAttempts: 5,
+      },
     }),
   },
   saveStreamDeltas: true, // Enable real-time streaming
@@ -291,8 +291,28 @@ createActionTool({
   description: string,
   args: ZodSchema,
   handler: FunctionReference<"action">,
+  retry?: true | {
+    enabled: true,
+    maxAttempts?: number,        // default 3
+    backoff?: {
+      strategy?: "fixed",
+      delayMs: number,
+      jitter?: boolean,
+    } | {
+      strategy: "exponential",
+      initialDelayMs: number,
+      multiplier?: number,       // default 2
+      maxDelayMs?: number,
+      jitter?: boolean,
+    },
+    shouldRetryError?: FunctionReference<"action">,
+  },
 });
 ```
+
+Pass `retry: true` for defaults (3 attempts, exponential backoff) or provide a full config object.
+The optional `shouldRetryError` action receives `{ threadId, toolCallId, toolName, args, error, attempt, maxAttempts }`
+and should return a truthy value to retry or falsy to fail immediately.
 
 #### `createAsyncTool(options)`
 
@@ -459,6 +479,60 @@ export const { enqueueWorkpoolAction: enqueueToolAction } = createWorkpoolBridge
 defineAgentApi(components.durableAgents, internal.chat.chatAgentHandler, {
   workpoolEnqueueAction: internal.workpool.enqueueAgentAction,
   toolExecutionWorkpoolEnqueueAction: internal.workpool.enqueueToolAction,
+});
+```
+
+## Recovering Interrupted Threads
+
+If a Convex dev server restarts or an action crashes mid-execution, threads and tool calls can get stuck in an
+intermediate state. To automatically recover them, add a `crons.ts` file that periodically resumes any interrupted work:
+
+```ts
+// convex/crons.ts
+import { cronJobs } from "convex/server";
+import { components, internal } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+
+const crons = cronJobs();
+
+export const recoverAgents = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    // Resume threads that were interrupted mid-stream
+    await ctx.runAction(components.durableAgents.agent.tryContinueAllThreads, {});
+    // Retry pending sync tool calls that lost their executor
+    await ctx.runMutation(components.durableAgents.tool_calls.resumePendingSyncToolExecutions, {});
+    return null;
+  },
+});
+
+crons.interval("recoverAgents", { minutes: 1 }, internal.crons.recoverAgents);
+
+export default crons;
+```
+
+`tryContinueAllThreads` scans for threads in `streaming` or `awaiting_tool_results` whose active stream or tool
+executor is no longer alive, and re-schedules them. `resumePendingSyncToolExecutions` picks up any `pending` sync tool
+calls that don't have an active scheduled retry function and re-enqueues them. Running both on a short interval ensures
+your agents self-heal without manual intervention.
+
+## Usage Tracking
+
+You can record token usage for each LLM response using the `onMessageComplete` callback. This callback is invoked after
+every streamed response with token counts and provider metadata, making it easy to log costs, enforce budgets, or build
+usage dashboards.
+
+```ts
+export const chatAgentHandler = streamHandlerAction(components.durableAgents, {
+  model: "anthropic/claude-haiku-4.5",
+  system: "You are a helpful AI assistant.",
+  tools: { /* ... */ },
+  onMessageComplete: async (ctx, args) => {
+    await ctx.runMutation(internal.usage.recordUsage, {
+      threadId: args.threadId,
+      usage: args.usage,
+    });
+  },
 });
 ```
 

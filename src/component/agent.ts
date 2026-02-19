@@ -1,7 +1,7 @@
 import type { FunctionHandle, FunctionReference, GenericDataModel, GenericMutationCtx } from "convex/server";
 import { v } from "convex/values";
-import { Logger } from "../logger.js";
-import { STREAM_LIVENESS_THRESHOLD_MS } from "../streaming.js";
+import { Logger } from "../utils/logger.js";
+import { STREAM_LIVENESS_THRESHOLD_MS } from "../utils/streaming.js";
 import { api, internal } from "./_generated/api.js";
 import { action, mutation } from "./_generated/server.js";
 import { cancelStream, isAlive } from "./streams.js";
@@ -69,6 +69,7 @@ export const continueStream = mutation({
         status: "stopped",
         activeStream: null,
         continue: false,
+        retryState: undefined,
       });
       if (thread.onStatusChangeHandle && previousStatus !== "stopped") {
         await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
@@ -91,6 +92,27 @@ export const continueStream = mutation({
     if (thread.status === "stopped") {
       logger.debug("Thread already in stopped state, skipping");
       return null;
+    }
+
+    if (thread.retryState?.scope === "stream") {
+      const now = Date.now();
+      if (thread.retryState.nextRetryAt > now) {
+        const delayMs = Math.max(0, thread.retryState.nextRetryAt - now);
+        logger.debug(
+          `Retry pending for thread=${args.threadId}; nextRetryAt=${thread.retryState.nextRetryAt}, now=${now}`,
+        );
+        const retryFnId = await ctx.scheduler.runAfter(delayMs, api.agent.continueStream, {
+          threadId: args.threadId,
+        });
+        await ctx.db.patch(thread._id, {
+          retryState: {
+            ...thread.retryState,
+            retryFnId,
+          },
+        });
+        return null;
+      }
+      logger.debug(`Retry window reached for thread=${args.threadId}; continuing with persisted retryState`);
     }
 
     // Check for pending tool calls

@@ -12,8 +12,19 @@ import { type FunctionReference, type GenericActionCtx, internalActionGeneric } 
 import { v } from "convex/values";
 import type { ComponentApi } from "../component/_generated/component.js";
 import type { Id } from "../component/_generated/dataModel.js";
-import { Logger } from "../logger.js";
-import { STREAM_HEARTBEAT_INTERVAL_MS } from "../streaming.js";
+import { Logger } from "../utils/logger.js";
+import {
+  clampDelayMs,
+  classifyRetryErrorDefault,
+  computeBackoffDelayMs,
+  DEFAULT_RETRY_MAX_ATTEMPTS,
+  extractRetryAfterDelayMs,
+  normalizeErrorMessage,
+  type RetryDecision,
+  type RetryErrorKind,
+  type RetryOptions,
+} from "../utils/retry.js";
+import { STREAM_HEARTBEAT_INTERVAL_MS } from "../utils/streaming.js";
 import { serializeForConvex } from "./helpers.js";
 import { Streamer } from "./streamer.js";
 import { buildToolDefinitions, type ToolDefinition } from "./tools.js";
@@ -33,6 +44,15 @@ const DEFAULT_STREAMING_OPTIONS: StreamingOptions = {
   throttleMs: 250,
   returnImmediately: false,
 };
+
+export type {
+  RetryContext,
+  RetryDecision,
+  RetryErrorClassification,
+  RetryErrorKind,
+  RetryErrorSignal,
+  RetryOptions,
+} from "../utils/retry.js";
 
 // ============================================================================
 // Stream Handler Action
@@ -61,6 +81,11 @@ export type ErrorHandlerArgs = {
   threadId: string;
   streamId: string;
   error: string;
+  kind?: RetryErrorKind | "tool_execution";
+  retryable?: boolean;
+  attempt?: number;
+  maxAttempts?: number;
+  requiresExplicitHandling?: boolean;
 };
 
 export type ErrorHandlerCallback = (ctx: ActionCtx, args: ErrorHandlerArgs) => void | Promise<void>;
@@ -77,6 +102,22 @@ export type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" |
   onTurnComplete?: TurnCompleteCallback;
   /** Optional: Callback when an error occurs during the stream handler invocation */
   onError?: ErrorHandlerCallback;
+  /** Optional: Configure automatic retry handling for stream failures */
+  retry?: false | RetryOptions;
+  /** Optional: Callback invoked when a retry is scheduled */
+  onRetry?: (
+    ctx: ActionCtx,
+    args: {
+      scope: "stream";
+      threadId: string;
+      streamId: string;
+      attempt: number;
+      maxAttempts: number;
+      delayMs: number;
+      kind?: RetryErrorKind;
+      error: string;
+    },
+  ) => void | Promise<void>;
   /** Optional: Function to enqueue actions via workpool (used for both stream handler and tools unless overridden) */
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Override workpool for tool execution only */
@@ -123,6 +164,7 @@ export function streamHandlerAction(
         args: tc.args,
         handler: toolDef.handler,
         saveDelta: tc.saveDelta,
+        retry: toolDef.retry,
       });
     } else {
       // Async tool - schedule callback that does NOT return the result
@@ -158,6 +200,8 @@ export function streamHandlerAction(
         onMessageComplete: usageHandlerCallback,
         onTurnComplete: turnCompleteHandlerCallback,
         onError: errorHandlerCallback,
+        retry,
+        onRetry: onRetryCallback,
         ...streamTextArgs
       } = resolvedArgs;
 
@@ -183,13 +227,14 @@ export function streamHandlerAction(
       logger.debug(`Stream lock acquired (seq=${stream.seq})`);
       streamer.startHeartbeat();
       let finalStatus: "awaiting_tool_results" | "completed" | "failed" | undefined;
+      let classifiedErrorKind: RetryErrorKind | "tool_execution" | undefined;
+      let classifiedRetryable: boolean | undefined;
+      let classifiedRequiresExplicitHandling: boolean | undefined;
+      let classifiedAttempt: number | undefined;
+      let classifiedMaxAttempts: number | undefined;
+      const retryEnabled = retry !== false && (retry?.enabled ?? true);
+      const maxRetryAttempts = retryEnabled ? Math.max(1, retry?.maxAttempts ?? DEFAULT_RETRY_MAX_ATTEMPTS) : 1;
       try {
-        logger.debug("Applying tool outcomes and fetching messages...");
-        const messages: MessageDoc[] = await ctx.runMutation(component.messages.applyToolOutcomes, {
-          threadId: args.threadId,
-        });
-        logger.debug(`Fetched ${messages.length} messages from thread`);
-
         // Set up delta streamer if enabled
         if (saveStreamDeltas) {
           logger.debug("Enabling delta streaming");
@@ -212,158 +257,283 @@ export function streamHandlerAction(
           });
         }
 
+        const thread = await ctx.runQuery(component.threads.get, {
+          threadId: args.threadId as Id<"threads">,
+        });
+        if (!thread) {
+          throw new Error(`Thread ${args.threadId} not found`);
+        }
+
+        const retryState = thread.retryState?.scope === "stream" ? thread.retryState : undefined;
+        const retryAttempt = retryState ? retryState.attempt + 1 : 1;
+        logger.debug(`Stream attempt ${retryAttempt}/${maxRetryAttempts}`);
+        logger.debug("Applying tool outcomes and fetching messages...");
+        const messages: MessageDoc[] = await ctx.runMutation(component.messages.applyToolOutcomes, {
+          threadId: args.threadId,
+        });
+        logger.debug(`Fetched ${messages.length} messages from thread`);
+
         const uiMessages = messages.map((m) => messageDocToUIMessage(m));
         logger.debug(`Converted ${uiMessages.length} UI messages, transforming to model messages...`);
         const modelMessages = transformMessages(await convertToModelMessages(uiMessages, { tools: handlerlessTools }));
         logger.debug(`Model messages ready (${modelMessages.length} messages), starting streamText...`);
-        const result = streamText({
-          ...streamTextArgs,
-          prompt: undefined,
-          messages: modelMessages,
-          tools: handlerlessTools,
-        });
 
-        let finishReason: string | undefined;
-        let responseMessage: UIMessage | undefined;
-
-        const uiMessageStream = result.toUIMessageStream({
-          generateMessageId: generateId,
-          originalMessages: uiMessages,
-          onFinish: ({ responseMessage: finalResponseMessage }) => {
-            responseMessage = finalResponseMessage;
-          },
-        });
-
-        let msgId: string | undefined;
-        if (messages.length > 0) {
-          msgId = messages[messages.length - 1]!.id;
-          logger.debug(`Setting initial message ID from last message: ${msgId}`);
-          await streamer.setMessageId(msgId, true);
-        }
         let toolCallCount = 0;
-        logger.debug("Processing UI message stream parts...");
-        for await (const part of uiMessageStream) {
-          if (part.type === "start") {
-            msgId = part.messageId;
-            logger.debug(`Stream part: start (messageId=${msgId})`);
-            await streamer.setMessageId(
-              msgId,
-              messages?.some((m) => m.id === msgId),
-            );
-          }
-          await streamer.process(part);
-
-          switch (part.type) {
-            case "tool-input-available":
-              toolCallCount++;
-              logger.debug(
-                `Stream part: tool-input-available (tool=${part.toolName}, callId=${part.toolCallId}, count=${toolCallCount})`,
-              );
-              await scheduleToolCall(
-                ctx,
-                {
-                  toolCallId: part.toolCallId,
-                  toolName: part.toolName,
-                  args: part.input,
-                  msgId: msgId,
-                  threadId: args.threadId,
-                  saveDelta: !!saveStreamDeltas,
-                },
-                toolDefinitions,
-                logger,
-              );
-              break;
-            case "finish":
-              finishReason = part.finishReason;
-              logger.debug(`Stream part: finish (reason=${finishReason})`);
-              break;
-            case "error":
-              logger.error("Stream error:", part.errorText);
-              throw new Error(`Stream error: ${part.errorText}`);
-            default:
-              // Ignore other part types
-              break;
-          }
-        }
-        logger.debug(`Stream iteration complete (toolCallCount=${toolCallCount}, finishReason=${finishReason})`);
-
-        if (!responseMessage) {
-          throw new Error("No response message");
-        }
-        logger.debug(`Response message received (role=${responseMessage.role}, parts=${responseMessage.parts.length})`);
-
-        const providerMetadata = await getStreamTextProviderMetadata(result);
-        const usage = await getStreamTextUsage(result, providerMetadata);
-        logger.debug(`Usage info: ${usage ? JSON.stringify(usage) : "none"}`);
-        if (usage && usageHandlerCallback) {
-          logger.debug("Invoking onMessageComplete callback...");
-          try {
-            await usageHandlerCallback(ctx as ActionCtx, {
-              threadId: args.threadId,
-              streamId: args.streamId,
-              message: responseMessage,
-              usage,
-              providerMetadata: serializeForConvex(providerMetadata),
-            });
-            logger.debug("onMessageComplete callback succeeded");
-          } catch (e) {
-            console.error("endOfTurnCallback callback failed:", e);
-          }
-        }
-
-        // Save the assistant response if we have one
-        if (responseMessage.role === "assistant" && responseMessage.parts.length > 0) {
-          logger.debug(
-            `Saving assistant response (id=${responseMessage.id}, parts=${responseMessage.parts.length}, seq=${stream.seq})`,
-          );
-          await ctx.runMutation(component.messages.add, {
-            threadId: args.threadId,
-            streaming: true,
-            msg: responseMessage,
-            overwrite: true,
-            committedSeq: stream.seq,
+        let streamPartCount = 0;
+        try {
+          const result = streamText({
+            ...streamTextArgs,
+            prompt: undefined,
+            messages: modelMessages,
+            tools: handlerlessTools,
           });
-          logger.debug("Applying tool outcomes after saving response...");
-          await ctx.runMutation(component.messages.applyToolOutcomes, {
-            threadId: args.threadId,
-          });
-        }
 
-        // Handle tool calls
-        if (toolCallCount > 0) {
-          logger.debug(`Setting thread status to awaiting_tool_results (${toolCallCount} tool calls)`);
-          finalStatus = "awaiting_tool_results";
-        } else if (finishReason && finishReason !== "tool-calls") {
-          logger.debug(`No tool calls, setting thread status to completed (finishReason=${finishReason})`);
-          finalStatus = "completed";
-          if (turnCompleteHandlerCallback) {
-            logger.debug("Invoking onTurnComplete callback...");
-            try {
-              await turnCompleteHandlerCallback(ctx as ActionCtx, {
-                threadId: args.threadId,
-                streamId: args.streamId,
-                providerMetadata: serializeForConvex(providerMetadata),
-                finishReason,
-              });
-              logger.debug("onTurnComplete callback succeeded");
-            } catch (e) {
-              console.error("turnCompleteHandler callback failed:", e);
+          let finishReason: string | undefined;
+          let responseMessage: UIMessage | undefined;
+
+          const uiMessageStream = result.toUIMessageStream({
+            generateMessageId: generateId,
+            originalMessages: uiMessages,
+            onFinish: ({ responseMessage: finalResponseMessage }) => {
+              responseMessage = finalResponseMessage;
+            },
+          });
+
+          let msgId: string | undefined;
+          if (messages.length > 0) {
+            msgId = messages[messages.length - 1]!.id;
+            logger.debug(`Setting initial message ID from last message: ${msgId}`);
+            await streamer.setMessageId(msgId, true);
+          }
+          logger.debug("Processing UI message stream parts...");
+          for await (const part of uiMessageStream) {
+            // Track whether meaningful stream output was emitted; start/finish/error
+            // control parts alone should not block a retry.
+            if (part.type !== "start" && part.type !== "finish" && part.type !== "error") {
+              streamPartCount++;
+            }
+            if (part.type === "start") {
+              msgId = part.messageId;
+              logger.debug(`Stream part: start (messageId=${msgId})`);
+              await streamer.setMessageId(
+                msgId,
+                messages?.some((m) => m.id === msgId),
+              );
+            }
+            await streamer.process(part);
+
+            switch (part.type) {
+              case "tool-input-available":
+                toolCallCount++;
+                logger.debug(
+                  `Stream part: tool-input-available (tool=${part.toolName}, callId=${part.toolCallId}, count=${toolCallCount})`,
+                );
+                await scheduleToolCall(
+                  ctx,
+                  {
+                    toolCallId: part.toolCallId,
+                    toolName: part.toolName,
+                    args: part.input,
+                    msgId: msgId,
+                    threadId: args.threadId,
+                    saveDelta: !!saveStreamDeltas,
+                  },
+                  toolDefinitions,
+                  logger,
+                );
+                break;
+              case "finish":
+                finishReason = part.finishReason;
+                logger.debug(`Stream part: finish (reason=${finishReason})`);
+                break;
+              case "error":
+                logger.error("Stream error:", part.errorText);
+                throw new Error(`Stream error: ${part.errorText}`);
+              default:
+                break;
             }
           }
-        } else {
-          logger.debug(`Unhandled end state: toolCallCount=${toolCallCount}, finishReason=${finishReason}`);
+          logger.debug(`Stream iteration complete (toolCallCount=${toolCallCount}, finishReason=${finishReason})`);
+
+          if (!responseMessage) {
+            throw new Error("No response message");
+          }
+          logger.debug(
+            `Response message received (role=${responseMessage.role}, parts=${responseMessage.parts.length})`,
+          );
+
+          const providerMetadata = await getStreamTextProviderMetadata(result);
+          const usage = await getStreamTextUsage(result, providerMetadata);
+          logger.debug(`Usage info: ${usage ? JSON.stringify(usage) : "none"}`);
+          if (usage && usageHandlerCallback) {
+            logger.debug("Invoking onMessageComplete callback...");
+            try {
+              await usageHandlerCallback(ctx as ActionCtx, {
+                threadId: args.threadId,
+                streamId: args.streamId,
+                message: responseMessage,
+                usage,
+                providerMetadata: serializeForConvex(providerMetadata),
+              });
+              logger.debug("onMessageComplete callback succeeded");
+            } catch (e) {
+              console.error("endOfTurnCallback callback failed:", e);
+            }
+          }
+
+          if (responseMessage.role === "assistant" && responseMessage.parts.length > 0) {
+            logger.debug(
+              `Saving assistant response (id=${responseMessage.id}, parts=${responseMessage.parts.length}, seq=${stream.seq})`,
+            );
+            await ctx.runMutation(component.messages.add, {
+              threadId: args.threadId,
+              streaming: true,
+              msg: responseMessage,
+              overwrite: true,
+              committedSeq: stream.seq,
+            });
+            logger.debug("Applying tool outcomes after saving response...");
+            await ctx.runMutation(component.messages.applyToolOutcomes, {
+              threadId: args.threadId,
+            });
+          }
+
+          if (toolCallCount > 0) {
+            logger.debug(`Setting thread status to awaiting_tool_results (${toolCallCount} tool calls)`);
+            finalStatus = "awaiting_tool_results";
+          } else if (finishReason && finishReason !== "tool-calls") {
+            logger.debug(`No tool calls, setting thread status to completed (finishReason=${finishReason})`);
+            finalStatus = "completed";
+            if (turnCompleteHandlerCallback) {
+              logger.debug("Invoking onTurnComplete callback...");
+              try {
+                await turnCompleteHandlerCallback(ctx as ActionCtx, {
+                  threadId: args.threadId,
+                  streamId: args.streamId,
+                  providerMetadata: serializeForConvex(providerMetadata),
+                  finishReason,
+                });
+                logger.debug("onTurnComplete callback succeeded");
+              } catch (e) {
+                console.error("turnCompleteHandler callback failed:", e);
+              }
+            }
+          } else {
+            logger.debug(`Unhandled end state: toolCallCount=${toolCallCount}, finishReason=${finishReason}`);
+          }
+
+          logger.debug("Finishing delta stream...");
+          await streamer.finish();
+          await ctx.runMutation(component.threads.clearRetryState, {
+            threadId: args.threadId as Id<"threads">,
+          });
+          logger.debug("Stream handler completed successfully");
+          return null;
+        } catch (attemptError) {
+          const normalizedError = normalizeErrorMessage(attemptError);
+          const defaultClassification = classifyRetryErrorDefault(attemptError);
+          let decision: RetryDecision = defaultClassification.retryable
+            ? { action: "retry" }
+            : {
+                action: "fail",
+                kind: defaultClassification.kind,
+                requiresExplicitHandling: defaultClassification.requiresExplicitHandling,
+              };
+          if (retryEnabled && retry?.classify) {
+            try {
+              decision = await retry.classify(ctx as ActionCtx, {
+                threadId: args.threadId,
+                streamId: args.streamId,
+                attempt: retryAttempt,
+                maxAttempts: maxRetryAttempts,
+                toolCallsScheduled: toolCallCount,
+                streamPartCount,
+                error: attemptError,
+                normalizedError,
+                defaultClassification,
+                defaultDecision: decision,
+              });
+            } catch (classifierError) {
+              logger.warn(
+                `retry.classify failed; falling back to default classification: ${normalizeErrorMessage(classifierError)}`,
+              );
+            }
+          }
+
+          const retryAfterToolCalls = retry !== false && (retry?.retryAfterToolCalls ?? false);
+          const retryBlockedByToolCalls = toolCallCount > 0 && !retryAfterToolCalls;
+          const canRetry =
+            retryEnabled &&
+            decision.action === "retry" &&
+            retryAttempt < maxRetryAttempts &&
+            !retryBlockedByToolCalls &&
+            streamPartCount === 0;
+
+          if (canRetry) {
+            const retryAfterDelayMs = extractRetryAfterDelayMs(defaultClassification.signal);
+            const delayMs = clampDelayMs(
+              (decision.action === "retry" ? decision.delayMs : undefined) ??
+                retryAfterDelayMs ??
+                computeBackoffDelayMs(retryAttempt, retry?.backoff),
+            );
+            classifiedErrorKind = defaultClassification.kind;
+            classifiedRetryable = true;
+            classifiedRequiresExplicitHandling = false;
+            classifiedAttempt = retryAttempt;
+            classifiedMaxAttempts = maxRetryAttempts;
+            logger.warn(
+              `Scheduling retry after recoverable error (attempt ${retryAttempt}/${maxRetryAttempts}, delay=${delayMs}ms): ${normalizedError}`,
+            );
+            if (onRetryCallback) {
+              try {
+                await onRetryCallback(ctx as ActionCtx, {
+                  scope: "stream",
+                  threadId: args.threadId,
+                  streamId: args.streamId,
+                  attempt: retryAttempt,
+                  maxAttempts: maxRetryAttempts,
+                  delayMs,
+                  kind: defaultClassification.kind,
+                  error: normalizedError,
+                });
+              } catch (onRetryError) {
+                console.error("onRetry callback failed:", onRetryError);
+              }
+            }
+
+            await ctx.runMutation(component.threads.scheduleRetry, {
+              threadId: args.threadId as Id<"threads">,
+              scope: "stream",
+              attempt: retryAttempt,
+              maxAttempts: maxRetryAttempts,
+              nextRetryAt: Date.now() + delayMs,
+              error: normalizedError,
+              kind: defaultClassification.kind,
+              retryable: true,
+              requiresExplicitHandling: false,
+            });
+            await streamer.fail(normalizedError);
+            logger.debug("Retry scheduled; ending current stream invocation");
+            return null;
+          }
+
+          classifiedErrorKind =
+            decision.action === "fail" ? (decision.kind ?? defaultClassification.kind) : defaultClassification.kind;
+          classifiedRetryable = false;
+          classifiedRequiresExplicitHandling =
+            decision.action === "fail"
+              ? (decision.requiresExplicitHandling ?? defaultClassification.requiresExplicitHandling)
+              : defaultClassification.requiresExplicitHandling;
+          classifiedAttempt = retryAttempt;
+          classifiedMaxAttempts = maxRetryAttempts;
+          throw attemptError;
         }
-
-        // Mark the stream finished only after all end-of-turn writes are persisted.
-        logger.debug("Finishing delta stream...");
-        await streamer.finish();
-
-        logger.debug("Stream handler completed successfully");
-        return null;
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const normalizedError = errorMessage || "Unknown error";
+        const normalizedError = normalizeErrorMessage(error);
         logger.error("Error in stream handler:", normalizedError);
+        await ctx.runMutation(component.threads.clearRetryState, {
+          threadId: args.threadId as Id<"threads">,
+        });
         try {
           await streamer.fail(normalizedError);
         } catch (streamAbortError) {
@@ -379,6 +549,11 @@ export function streamHandlerAction(
               threadId: args.threadId,
               streamId: args.streamId,
               error: normalizedError,
+              kind: classifiedErrorKind,
+              retryable: classifiedRetryable,
+              requiresExplicitHandling: classifiedRequiresExplicitHandling,
+              attempt: classifiedAttempt,
+              maxAttempts: classifiedMaxAttempts,
             });
           } catch (e) {
             console.error("errorHandler callback failed:", e);

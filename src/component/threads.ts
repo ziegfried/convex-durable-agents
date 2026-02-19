@@ -1,9 +1,10 @@
 import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
-import { Logger } from "../logger.js";
+import { Logger } from "../utils/logger.js";
+import { api } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
-import { internalQuery, mutation, query } from "./_generated/server.js";
-import { vThreadStatus } from "./schema.js";
+import { internalQuery, type MutationCtx, mutation, query } from "./_generated/server.js";
+import { vRetryState, vThreadStatus } from "./schema.js";
 
 const logger = new Logger("threads");
 const FINALIZER_MISMATCH_ALERT_WINDOW_MS = 5 * 60 * 1000;
@@ -64,6 +65,7 @@ export type ThreadDoc = {
   streamFnHandle: string;
   workpoolEnqueueAction?: string;
   toolExecutionWorkpoolEnqueueAction?: string;
+  retryState?: Doc<"threads">["retryState"];
 };
 
 function publicThread(thread: Doc<"threads">): ThreadDoc {
@@ -76,6 +78,7 @@ function publicThread(thread: Doc<"threads">): ThreadDoc {
     streamFnHandle: thread.streamFnHandle,
     workpoolEnqueueAction: thread.workpoolEnqueueAction,
     toolExecutionWorkpoolEnqueueAction: thread.toolExecutionWorkpoolEnqueueAction,
+    retryState: thread.retryState,
   };
 }
 
@@ -89,6 +92,7 @@ export const vThreadDoc = v.object({
   streamFnHandle: v.string(),
   workpoolEnqueueAction: v.optional(v.string()),
   toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
+  retryState: v.optional(vRetryState),
 });
 
 export const vThreadDocWithStreamFnHandle = v.object({
@@ -104,7 +108,18 @@ export const vThreadDocWithStreamFnHandle = v.object({
   activeStream: v.optional(v.union(v.id("streams"), v.null())),
   continue: v.optional(v.boolean()),
   seq: v.number(),
+  retryState: v.optional(vRetryState),
 });
+
+async function cancelRetryFnIfPending(ctx: MutationCtx, thread: Doc<"threads">): Promise<void> {
+  if (!thread.retryState?.retryFnId) {
+    return;
+  }
+  const retryFn = await ctx.db.system.get(thread.retryState.retryFnId);
+  if (retryFn?.state.kind === "pending") {
+    await ctx.scheduler.cancel(thread.retryState.retryFnId);
+  }
+}
 
 export const create = mutation({
   args: {
@@ -146,6 +161,74 @@ export const getWithStreamFnHandle = internalQuery({
   handler: async (ctx, args) => {
     const thread = await ctx.db.get(args.threadId);
     return thread ?? null;
+  },
+});
+
+export const scheduleRetry = mutation({
+  args: {
+    threadId: v.id("threads"),
+    scope: v.literal("stream"),
+    attempt: v.number(),
+    maxAttempts: v.number(),
+    nextRetryAt: v.number(),
+    error: v.string(),
+    kind: v.optional(v.string()),
+    retryable: v.boolean(),
+    requiresExplicitHandling: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+
+    await cancelRetryFnIfPending(ctx, thread);
+
+    if (thread.stopSignal) {
+      await ctx.db.patch(args.threadId, {
+        retryState: undefined,
+      });
+      return null;
+    }
+
+    const delayMs = Math.max(0, args.nextRetryAt - Date.now());
+    const retryFnId = await ctx.scheduler.runAfter(delayMs, api.agent.continueStream, {
+      threadId: args.threadId,
+    });
+
+    await ctx.db.patch(args.threadId, {
+      retryState: {
+        scope: args.scope,
+        attempt: args.attempt,
+        maxAttempts: args.maxAttempts,
+        nextRetryAt: args.nextRetryAt,
+        error: args.error,
+        kind: args.kind,
+        retryable: args.retryable,
+        requiresExplicitHandling: args.requiresExplicitHandling,
+        retryFnId,
+      },
+    });
+    return null;
+  },
+});
+
+export const clearRetryState = mutation({
+  args: {
+    threadId: v.id("threads"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const thread = await ctx.db.get(args.threadId);
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+    await cancelRetryFnIfPending(ctx, thread);
+    await ctx.db.patch(args.threadId, {
+      retryState: undefined,
+    });
+    return null;
   },
 });
 
@@ -344,6 +427,11 @@ export const setStopSignal = mutation({
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
+    if (args.stopSignal) {
+      await cancelRetryFnIfPending(ctx, thread);
+      await ctx.db.patch(args.threadId, { stopSignal: args.stopSignal, retryState: undefined });
+      return null;
+    }
     await ctx.db.patch(args.threadId, { stopSignal: args.stopSignal });
     return null;
   },
@@ -383,6 +471,7 @@ export const remove = mutation({
     if (!thread) {
       throw new Error(`Thread ${args.threadId} not found`);
     }
+    await cancelRetryFnIfPending(ctx, thread);
     // Delete all messages for this thread
     const messages = await ctx.db
       .query("messages")

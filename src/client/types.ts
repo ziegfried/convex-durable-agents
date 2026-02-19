@@ -33,6 +33,17 @@ export type PaginationResult<T> = {
 
 export type ThreadStatus = "streaming" | "awaiting_tool_results" | "completed" | "failed" | "stopped";
 
+export type RetryState = {
+  scope: "stream";
+  attempt: number;
+  maxAttempts: number;
+  nextRetryAt: number;
+  error: string;
+  kind?: string;
+  retryable: boolean;
+  requiresExplicitHandling: boolean;
+};
+
 export type ThreadDoc = {
   _id: string;
   _creationTime: number;
@@ -40,6 +51,7 @@ export type ThreadDoc = {
   stopSignal: boolean;
   streamId?: string | null;
   streamFnHandle: string;
+  retryState?: RetryState;
 };
 
 const vThreadStatus = v.union(
@@ -59,6 +71,19 @@ export const _vClientThreadDoc = v.object({
   streamFnHandle: v.string(),
   workpoolEnqueueAction: v.optional(v.string()),
   toolExecutionWorkpoolEnqueueAction: v.optional(v.string()),
+  retryState: v.optional(
+    v.object({
+      scope: v.literal("stream"),
+      attempt: v.number(),
+      maxAttempts: v.number(),
+      nextRetryAt: v.number(),
+      error: v.string(),
+      kind: v.optional(v.string()),
+      retryable: v.boolean(),
+      requiresExplicitHandling: v.boolean(),
+      retryFnId: v.optional(v.string()),
+    }),
+  ),
 });
 
 export type MessageDoc = UIMessage<any> & {
@@ -77,12 +102,47 @@ export function messageDocToUIMessage(message: MessageDoc): UIMessage {
   };
 }
 
+export type RetryBackoffConfig =
+  | {
+      strategy?: "fixed";
+      delayMs: number;
+      jitter?: boolean;
+    }
+  | {
+      strategy: "exponential";
+      initialDelayMs: number;
+      multiplier?: number;
+      maxDelayMs?: number;
+      jitter?: boolean;
+    };
+
+export type SyncToolRetryOptions = {
+  /**
+   * Opt-in to retry for this sync tool.
+   */
+  enabled: true;
+  /**
+   * Maximum execution attempts including the initial attempt.
+   */
+  maxAttempts?: number;
+  /**
+   * Retry backoff policy.
+   */
+  backoff?: RetryBackoffConfig;
+  /**
+   * Optional function to classify whether an error is retryable.
+   * Receives { threadId, toolCallId, toolName, args, error, attempt, maxAttempts }.
+   */
+  shouldRetryError?: FunctionReference<"action", "internal" | "public">;
+};
+
 // Sync durable tool definition - handler returns the result directly
 export type SyncTool<INPUT = unknown, OUTPUT = unknown> = {
   type: "sync";
   description: string;
   parameters: unknown; // JSON Schema
   handler: FunctionReference<"action", "internal" | "public">;
+  retry?: SyncToolRetryOptions;
   _inputType?: INPUT;
   _outputType?: OUTPUT;
 };

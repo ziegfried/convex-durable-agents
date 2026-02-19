@@ -163,6 +163,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     threads: {
+      clearRetryState: FunctionReference<
+        "mutation",
+        "internal",
+        { threadId: string },
+        null,
+        Name
+      >;
       clearStreamId: FunctionReference<
         "mutation",
         "internal",
@@ -182,6 +189,17 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           _creationTime: number;
           _id: string;
+          retryState?: {
+            attempt: number;
+            error: string;
+            kind?: string;
+            maxAttempts: number;
+            nextRetryAt: number;
+            requiresExplicitHandling: boolean;
+            retryFnId?: string;
+            retryable: boolean;
+            scope: "stream";
+          };
           status:
             | "streaming"
             | "awaiting_tool_results"
@@ -220,6 +238,17 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           _creationTime: number;
           _id: string;
+          retryState?: {
+            attempt: number;
+            error: string;
+            kind?: string;
+            maxAttempts: number;
+            nextRetryAt: number;
+            requiresExplicitHandling: boolean;
+            retryFnId?: string;
+            retryable: boolean;
+            scope: "stream";
+          };
           status:
             | "streaming"
             | "awaiting_tool_results"
@@ -241,6 +270,17 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         Array<{
           _creationTime: number;
           _id: string;
+          retryState?: {
+            attempt: number;
+            error: string;
+            kind?: string;
+            maxAttempts: number;
+            nextRetryAt: number;
+            requiresExplicitHandling: boolean;
+            retryFnId?: string;
+            retryable: boolean;
+            scope: "stream";
+          };
           status:
             | "streaming"
             | "awaiting_tool_results"
@@ -273,6 +313,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "mutation",
         "internal",
         { threadId: string },
+        null,
+        Name
+      >;
+      scheduleRetry: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          attempt: number;
+          error: string;
+          kind?: string;
+          maxAttempts: number;
+          nextRetryAt: number;
+          requiresExplicitHandling: boolean;
+          retryable: boolean;
+          scope: "stream";
+          threadId: string;
+        },
         null,
         Name
       >;
@@ -321,7 +378,9 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         {
           args: any;
           callback?: string;
+          handler?: string;
           msgId: string;
+          retry?: any;
           saveDelta: boolean;
           threadId: string;
           toolCallId: string;
@@ -331,9 +390,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _creationTime: number;
           _id: string;
           args: any;
+          callbackAttempt?: number;
+          callbackLastError?: string;
           error?: string;
+          executionAttempt?: number;
+          executionLastError?: string;
+          executionMaxAttempts?: number;
+          executionRetryPolicy?: any;
+          handler?: string;
           msgId: string;
+          nextRetryAt?: number;
           result?: any;
+          status: "pending" | "completed" | "failed";
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -348,9 +416,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _creationTime: number;
           _id: string;
           args: any;
+          callbackAttempt?: number;
+          callbackLastError?: string;
           error?: string;
+          executionAttempt?: number;
+          executionLastError?: string;
+          executionMaxAttempts?: number;
+          executionRetryPolicy?: any;
+          handler?: string;
           msgId: string;
+          nextRetryAt?: number;
           result?: any;
+          status: "pending" | "completed" | "failed";
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -365,9 +442,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _creationTime: number;
           _id: string;
           args: any;
+          callbackAttempt?: number;
+          callbackLastError?: string;
           error?: string;
+          executionAttempt?: number;
+          executionLastError?: string;
+          executionMaxAttempts?: number;
+          executionRetryPolicy?: any;
+          handler?: string;
           msgId: string;
+          nextRetryAt?: number;
           result?: any;
+          status: "pending" | "completed" | "failed";
           threadId: string;
           toolCallId: string;
           toolName: string;
@@ -382,13 +468,29 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           _creationTime: number;
           _id: string;
           args: any;
+          callbackAttempt?: number;
+          callbackLastError?: string;
           error?: string;
+          executionAttempt?: number;
+          executionLastError?: string;
+          executionMaxAttempts?: number;
+          executionRetryPolicy?: any;
+          handler?: string;
           msgId: string;
+          nextRetryAt?: number;
           result?: any;
+          status: "pending" | "completed" | "failed";
           threadId: string;
           toolCallId: string;
           toolName: string;
         }>,
+        Name
+      >;
+      resumePendingSyncToolExecutions: FunctionReference<
+        "mutation",
+        "internal",
+        { limit?: number },
+        number,
         Name
       >;
       scheduleAsyncToolCall: FunctionReference<
@@ -413,6 +515,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           args: any;
           handler: string;
           msgId: string;
+          retry?: any;
           saveDelta: boolean;
           threadId: string;
           toolCallId: string;

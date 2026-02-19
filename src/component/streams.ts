@@ -1,7 +1,7 @@
 import type { UIMessageChunk } from "ai";
 import { type Infer, v } from "convex/values";
-import { Logger } from "../logger.js";
-import { STREAM_LIVENESS_THRESHOLD_MS } from "../streaming.js";
+import { Logger } from "../utils/logger.js";
+import { STREAM_LIVENESS_THRESHOLD_MS } from "../utils/streaming.js";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx, mutation, query } from "./_generated/server";

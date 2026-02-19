@@ -1,7 +1,7 @@
 import type { UIMessageChunk } from "ai";
 import type { ComponentApi } from "../component/_generated/component";
 import type { Doc, Id } from "../component/_generated/dataModel";
-import { Logger } from "../logger";
+import { Logger } from "../utils/logger";
 import type { ActionCtx } from "./types";
 
 export class Streamer {

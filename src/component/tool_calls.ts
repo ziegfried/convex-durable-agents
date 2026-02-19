@@ -1,7 +1,8 @@
-import type { UIMessagePart } from "ai";
+import type { ProviderMetadata, UIMessagePart } from "ai";
 import type { FunctionHandle } from "convex/server";
 import { v } from "convex/values";
-import { Logger } from "../logger.js";
+import { Logger } from "../utils/logger.js";
+import { extractToolErrorInfo, isRetryableDecision, isRetryableToolErrorDefault } from "../utils/retry.js";
 import { api, internal } from "./_generated/api.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import { internalAction, internalMutation, type MutationCtx, mutation, query } from "./_generated/server.js";
@@ -14,6 +15,72 @@ const MINUTE = 60 * SECOND;
 const TOOL_CALL_TIMEOUT_MS = 30 * MINUTE;
 const ASYNC_CALLBACK_MAX_ATTEMPTS = 3;
 const ASYNC_CALLBACK_RETRY_BASE_MS = 5 * SECOND;
+const SYNC_TOOL_MAX_ATTEMPTS = 3;
+const SYNC_TOOL_RETRY_INITIAL_BACKOFF_MS = 500;
+
+type RetryBackoffPolicy =
+  | {
+      strategy?: "fixed";
+      delayMs: number;
+      jitter?: boolean;
+    }
+  | {
+      strategy: "exponential";
+      initialDelayMs: number;
+      multiplier?: number;
+      maxDelayMs?: number;
+      jitter?: boolean;
+    };
+
+type SyncToolRetryPolicy = {
+  enabled: true;
+  maxAttempts?: number;
+  backoff?: RetryBackoffPolicy;
+  shouldRetryError?: string;
+};
+
+function normalizeSyncToolRetryPolicy(value: unknown): SyncToolRetryPolicy | undefined {
+  if (value == null || typeof value !== "object") {
+    return undefined;
+  }
+  const obj = value as Record<string, unknown>;
+  if (obj.enabled !== true) {
+    return undefined;
+  }
+  return {
+    enabled: true,
+    maxAttempts: typeof obj.maxAttempts === "number" ? obj.maxAttempts : undefined,
+    backoff: (obj.backoff as RetryBackoffPolicy | undefined) ?? undefined,
+    shouldRetryError: typeof obj.shouldRetryError === "string" ? obj.shouldRetryError : undefined,
+  };
+}
+
+function clampDelayMs(value: number): number {
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.floor(value);
+}
+
+function computeRetryDelayMs(attempt: number, backoff?: RetryBackoffPolicy): number {
+  const policy = backoff ?? {
+    strategy: "exponential" as const,
+    initialDelayMs: SYNC_TOOL_RETRY_INITIAL_BACKOFF_MS,
+    multiplier: 2,
+    maxDelayMs: 10_000,
+    jitter: true,
+  };
+  if ("delayMs" in policy) {
+    const delayMs = clampDelayMs(policy.delayMs);
+    if (!policy.jitter) return delayMs;
+    return Math.floor(Math.random() * (delayMs + 1));
+  }
+  const initialDelayMs = clampDelayMs(policy.initialDelayMs);
+  const multiplier = Number.isFinite(policy.multiplier ?? 2) ? (policy.multiplier ?? 2) : 2;
+  const unbounded = initialDelayMs * multiplier ** Math.max(0, attempt - 1);
+  const maxDelayMs = policy.maxDelayMs == null ? unbounded : clampDelayMs(policy.maxDelayMs);
+  const delayMs = Math.min(unbounded, maxDelayMs);
+  if (!policy.jitter) return delayMs;
+  return Math.floor(Math.random() * (delayMs + 1));
+}
 
 function normalizeToolCallTimeoutMs(timeoutMs: number): number {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -44,16 +111,29 @@ async function cleanupTimeoutFn(ctx: MutationCtx, toolCall: Doc<"tool_calls">): 
   }
 }
 
+async function cleanupExecutionRetryFn(ctx: MutationCtx, toolCall: Doc<"tool_calls">): Promise<void> {
+  if (!toolCall.executionRetryFnId) {
+    return;
+  }
+  const retryFn = await ctx.db.system.get(toolCall.executionRetryFnId);
+  if (retryFn?.state.kind === "pending") {
+    await ctx.scheduler.cancel(toolCall.executionRetryFnId);
+  }
+}
+
 async function failToolCallIfPending(ctx: MutationCtx, toolCall: Doc<"tool_calls">, error: string): Promise<boolean> {
   const latest = await ctx.db.get(toolCall._id);
   if (!latest || latest.status !== "pending") {
     return false;
   }
   await cleanupTimeoutFn(ctx, latest);
+  await cleanupExecutionRetryFn(ctx, latest);
   await ctx.db.patch(latest._id, {
     error,
     status: "failed",
     callbackLastError: error,
+    executionRetryFnId: undefined,
+    nextRetryAt: undefined,
   });
 
   if (latest.saveDelta) {
@@ -96,6 +176,15 @@ export type ToolCallDoc = {
   args: unknown;
   result?: unknown;
   error?: string;
+  status: "pending" | "completed" | "failed";
+  callbackAttempt?: number;
+  callbackLastError?: string;
+  handler?: string;
+  executionAttempt?: number;
+  executionMaxAttempts?: number;
+  executionLastError?: string;
+  executionRetryPolicy?: unknown;
+  nextRetryAt?: number;
 };
 
 function publicToolCall(toolCall: Doc<"tool_calls">): ToolCallDoc {
@@ -109,6 +198,15 @@ function publicToolCall(toolCall: Doc<"tool_calls">): ToolCallDoc {
     args: toolCall.args,
     result: toolCall.result,
     error: toolCall.error,
+    status: toolCall.status,
+    callbackAttempt: toolCall.callbackAttempt,
+    callbackLastError: toolCall.callbackLastError,
+    handler: toolCall.handler,
+    executionAttempt: toolCall.executionAttempt,
+    executionMaxAttempts: toolCall.executionMaxAttempts,
+    executionLastError: toolCall.executionLastError,
+    executionRetryPolicy: toolCall.executionRetryPolicy,
+    nextRetryAt: toolCall.nextRetryAt,
   };
 }
 
@@ -123,7 +221,70 @@ export const vToolCallDoc = v.object({
   args: v.any(),
   result: v.optional(v.any()),
   error: v.optional(v.string()),
+  status: v.union(v.literal("pending"), v.literal("completed"), v.literal("failed")),
+  callbackAttempt: v.optional(v.number()),
+  callbackLastError: v.optional(v.string()),
+  handler: v.optional(v.string()),
+  executionAttempt: v.optional(v.number()),
+  executionMaxAttempts: v.optional(v.number()),
+  executionLastError: v.optional(v.string()),
+  executionRetryPolicy: v.optional(v.any()),
+  nextRetryAt: v.optional(v.number()),
 });
+
+type CreateToolCallArgs = {
+  threadId: Id<"threads">;
+  msgId: string;
+  toolCallId: string;
+  toolName: string;
+  callback?: string;
+  handler?: string;
+  retry?: SyncToolRetryPolicy;
+  args: unknown;
+  saveDelta: boolean;
+};
+
+async function createToolCallRecord(ctx: MutationCtx, args: CreateToolCallArgs): Promise<Doc<"tool_calls">> {
+  const existingToolCall = await ctx.db
+    .query("tool_calls")
+    .withIndex("by_thread_tool_call_id", (q) => q.eq("threadId", args.threadId).eq("toolCallId", args.toolCallId))
+    .first();
+  if (existingToolCall) {
+    throw new Error(`Tool call ${args.toolCallId} already exists`);
+  }
+  logger.debug(
+    `create: tool=${args.toolName}, callId=${args.toolCallId}, thread=${args.threadId}, msgId=${args.msgId}`,
+  );
+  const expiresAt = Date.now() + TOOL_CALL_TIMEOUT_MS;
+  const toolCallId = await ctx.db.insert("tool_calls", {
+    threadId: args.threadId,
+    msgId: args.msgId,
+    toolCallId: args.toolCallId,
+    toolName: args.toolName,
+    callback: args.callback,
+    handler: args.handler,
+    callbackAttempt: args.callback ? 0 : undefined,
+    executionAttempt: args.retry ? 0 : undefined,
+    executionMaxAttempts: args.retry?.maxAttempts,
+    executionRetryPolicy: args.retry,
+    args: args.args,
+    saveDelta: args.saveDelta,
+    timeoutMs: TOOL_CALL_TIMEOUT_MS,
+    expiresAt,
+    status: "pending",
+  });
+  const timeoutFnId = await ctx.scheduler.runAfter(TOOL_CALL_TIMEOUT_MS, internal.tool_calls.failPendingToolCall, {
+    threadId: args.threadId,
+    toolCallId: args.toolCallId,
+  });
+  await ctx.db.patch(toolCallId, { timeoutFnId });
+
+  const toolCall = await ctx.db.get(toolCallId);
+  if (!toolCall) {
+    throw new Error(`Tool call ${toolCallId} not found after creation`);
+  }
+  return toolCall;
+}
 
 export const create = mutation({
   args: {
@@ -132,43 +293,25 @@ export const create = mutation({
     toolCallId: v.string(),
     toolName: v.string(),
     callback: v.optional(v.string()),
+    handler: v.optional(v.string()),
+    retry: v.optional(v.any()),
     args: v.any(),
     saveDelta: v.boolean(),
   },
   returns: vToolCallDoc,
   handler: async (ctx, args) => {
-    const existingToolCall = await ctx.db
-      .query("tool_calls")
-      .withIndex("by_thread_tool_call_id", (q) => q.eq("threadId", args.threadId).eq("toolCallId", args.toolCallId))
-      .first();
-    if (existingToolCall) {
-      throw new Error(`Tool call ${args.toolCallId} already exists`);
-    }
-    logger.debug(
-      `create: tool=${args.toolName}, callId=${args.toolCallId}, thread=${args.threadId}, msgId=${args.msgId}`,
-    );
-    const expiresAt = Date.now() + TOOL_CALL_TIMEOUT_MS;
-    const toolCallId = await ctx.db.insert("tool_calls", {
+    const toolCall = await createToolCallRecord(ctx, {
       threadId: args.threadId,
       msgId: args.msgId,
       toolCallId: args.toolCallId,
       toolName: args.toolName,
       callback: args.callback,
-      callbackAttempt: args.callback ? 0 : undefined,
+      handler: args.handler,
+      retry: normalizeSyncToolRetryPolicy(args.retry),
       args: args.args,
       saveDelta: args.saveDelta,
-      timeoutMs: TOOL_CALL_TIMEOUT_MS,
-      expiresAt,
-      status: "pending",
     });
-    const timeoutFnId = await ctx.scheduler.runAfter(TOOL_CALL_TIMEOUT_MS, internal.tool_calls.failPendingToolCall, {
-      threadId: args.threadId,
-      toolCallId: args.toolCallId,
-    });
-    await ctx.db.patch(toolCallId, { timeoutFnId });
-
-    const toolCall = await ctx.db.get(toolCallId);
-    return publicToolCall(toolCall!);
+    return publicToolCall(toolCall);
   },
 });
 
@@ -189,7 +332,13 @@ export const setResult = mutation({
     }
     logger.debug(`setResult: callId=${toolCall.toolCallId}, tool=${toolCall.toolName}`);
     await cleanupTimeoutFn(ctx, toolCall);
-    await ctx.db.patch(args.id, { result: args.result, status: "completed" });
+    await cleanupExecutionRetryFn(ctx, toolCall);
+    await ctx.db.patch(args.id, {
+      result: args.result,
+      status: "completed",
+      executionRetryFnId: undefined,
+      nextRetryAt: undefined,
+    });
     return true;
   },
 });
@@ -211,7 +360,14 @@ export const setError = mutation({
     }
     logger.debug(`setError: callId=${toolCall.toolCallId}, tool=${toolCall.toolName}, error=${args.error}`);
     await cleanupTimeoutFn(ctx, toolCall);
-    await ctx.db.patch(args.id, { error: args.error, status: "failed", callbackLastError: args.error });
+    await cleanupExecutionRetryFn(ctx, toolCall);
+    await ctx.db.patch(args.id, {
+      error: args.error,
+      status: "failed",
+      callbackLastError: args.error,
+      executionRetryFnId: undefined,
+      nextRetryAt: undefined,
+    });
     return true;
   },
 });
@@ -320,6 +476,7 @@ export const scheduleToolCall = mutation({
     toolName: v.string(),
     args: v.any(),
     handler: v.string(),
+    retry: v.optional(v.any()),
     saveDelta: v.boolean(),
   },
   returns: v.null(),
@@ -333,11 +490,13 @@ export const scheduleToolCall = mutation({
     logger.debug(`scheduleToolCall: tool=${args.toolName}, callId=${args.toolCallId}, thread=${args.threadId}`);
 
     // Create the tool call record
-    await ctx.runMutation(api.tool_calls.create, {
+    await createToolCallRecord(ctx, {
       threadId: args.threadId,
       msgId: args.msgId,
       toolCallId: args.toolCallId,
       toolName: args.toolName,
+      handler: args.handler,
+      retry: normalizeSyncToolRetryPolicy(args.retry),
       args: args.args,
       saveDelta: args.saveDelta,
     });
@@ -382,7 +541,7 @@ export const scheduleAsyncToolCall = mutation({
     logger.debug(`scheduleAsyncToolCall: tool=${args.toolName}, callId=${args.toolCallId}, thread=${args.threadId}`);
 
     // Create the tool call record (will remain pending until addToolResult is called)
-    await ctx.runMutation(api.tool_calls.create, {
+    await createToolCallRecord(ctx, {
       threadId: args.threadId,
       toolCallId: args.toolCallId,
       msgId: args.msgId,
@@ -412,6 +571,139 @@ export const scheduleAsyncToolCall = mutation({
   },
 });
 
+export const updateExecutionRetryState = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    executionAttempt: v.number(),
+    executionLastError: v.optional(v.string()),
+    nextRetryAt: v.optional(v.number()),
+    executionRetryFnId: v.optional(v.id("_scheduled_functions")),
+    clearNextRetryAt: v.optional(v.boolean()),
+    clearExecutionRetryFnId: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const toolCall = await getToolCallByScope(ctx, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+    });
+    if (!toolCall || toolCall.status !== "pending") {
+      return null;
+    }
+
+    const patch: {
+      executionAttempt: number;
+      executionLastError?: string;
+      nextRetryAt?: number | undefined;
+      executionRetryFnId?: Id<"_scheduled_functions"> | undefined;
+    } = {
+      executionAttempt: args.executionAttempt,
+    };
+    if (args.executionLastError !== undefined) {
+      patch.executionLastError = args.executionLastError;
+    }
+    if (args.nextRetryAt !== undefined) {
+      patch.nextRetryAt = args.nextRetryAt;
+    }
+    if (args.executionRetryFnId !== undefined) {
+      patch.executionRetryFnId = args.executionRetryFnId;
+    }
+    if (args.clearNextRetryAt) {
+      patch.nextRetryAt = undefined;
+    }
+    if (args.clearExecutionRetryFnId) {
+      patch.executionRetryFnId = undefined;
+    }
+    await ctx.db.patch(toolCall._id, patch);
+    return null;
+  },
+});
+
+export const scheduleExecutionRetry = internalMutation({
+  args: {
+    threadId: v.id("threads"),
+    toolCallId: v.string(),
+    handler: v.string(),
+    executionAttempt: v.number(),
+    executionLastError: v.string(),
+    nextRetryAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const toolCall = await getToolCallByScope(ctx, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+    });
+    if (!toolCall || toolCall.status !== "pending") {
+      return null;
+    }
+
+    await cleanupExecutionRetryFn(ctx, toolCall);
+    const delayMs = Math.max(0, args.nextRetryAt - Date.now());
+    const executionRetryFnId = await ctx.scheduler.runAfter(delayMs, internal.tool_calls.executeToolCall, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      handler: args.handler,
+    });
+
+    await ctx.db.patch(toolCall._id, {
+      executionAttempt: args.executionAttempt,
+      executionLastError: args.executionLastError,
+      nextRetryAt: args.nextRetryAt,
+      executionRetryFnId,
+    });
+    return null;
+  },
+});
+
+export const resumePendingSyncToolExecutions = mutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.floor(args.limit ?? 100));
+    const pending = await ctx.db
+      .query("tool_calls")
+      .withIndex("by_status_only", (q) => q.eq("status", "pending"))
+      .take(limit * 2);
+
+    let resumed = 0;
+    const now = Date.now();
+    for (const toolCall of pending) {
+      if (resumed >= limit) {
+        break;
+      }
+      if (!toolCall.handler) {
+        continue;
+      }
+      if (toolCall.executionRetryFnId) {
+        const retryFn = await ctx.db.system.get(toolCall.executionRetryFnId);
+        if (retryFn?.state.kind === "pending") {
+          continue;
+        }
+      }
+      const nextRetryAt = toolCall.nextRetryAt ?? now;
+      const delayMs = Math.max(0, nextRetryAt - now);
+      const executionRetryFnId = await ctx.scheduler.runAfter(delayMs, internal.tool_calls.executeToolCall, {
+        threadId: toolCall.threadId,
+        toolCallId: toolCall.toolCallId,
+        handler: toolCall.handler,
+      });
+      await ctx.db.patch(toolCall._id, {
+        executionRetryFnId,
+      });
+      resumed += 1;
+    }
+
+    if (resumed > 0) {
+      logger.warn(`resumePendingSyncToolExecutions: resumed ${resumed} pending sync tool call(s)`);
+    }
+    return resumed;
+  },
+});
+
 /**
  * Execute a tool call
  */
@@ -423,8 +715,6 @@ export const executeToolCall = internalAction({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    logger.debug(`executeToolCall: callId=${args.toolCallId}, thread=${args.threadId}`);
-
     // Get the tool call record
     const toolCall = await ctx.runQuery(api.tool_calls.getByToolCallId, {
       threadId: args.threadId,
@@ -434,34 +724,120 @@ export const executeToolCall = internalAction({
     if (!toolCall) {
       throw new Error(`Tool call ${args.toolCallId} not found`);
     }
+    if (toolCall.status !== "pending") {
+      logger.debug(`executeToolCall: skipping callId=${args.toolCallId}, status already terminal (${toolCall.status})`);
+      return null;
+    }
     logger.debug(`executeToolCall: tool=${toolCall.toolName}`);
 
-    try {
-      // Execute the tool handler
-      // The handler string is passed from the client and we need to resolve it
-      // For now, we'll use ctx.runAction with a dynamic reference
-      // This requires the handler to be a proper function reference string
-      const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
+    const thread = await ctx.runQuery(api.threads.get, {
+      threadId: args.threadId,
+    });
+    if (!thread) {
+      throw new Error(`Thread ${args.threadId} not found`);
+    }
+    if (thread.stopSignal || thread.status === "stopped") {
+      await ctx.runMutation(api.tool_calls.addToolError, {
+        threadId: args.threadId,
+        toolCallId: toolCall.toolCallId,
+        error: "Tool execution cancelled because the thread was stopped",
+      });
+      return null;
+    }
 
+    const handler = toolCall.handler ?? args.handler;
+    const retryPolicy = normalizeSyncToolRetryPolicy(toolCall.executionRetryPolicy);
+    const retryEnabled = retryPolicy?.enabled === true;
+    const maxAttempts = retryEnabled ? Math.max(1, retryPolicy.maxAttempts ?? SYNC_TOOL_MAX_ATTEMPTS) : 1;
+    const toolArgs = typeof toolCall.args === "object" && toolCall.args !== null ? toolCall.args : {};
+    const attempt = Math.max(1, (toolCall.executionAttempt ?? 0) + 1);
+    await ctx.runMutation(internal.tool_calls.updateExecutionRetryState, {
+      threadId: args.threadId,
+      toolCallId: args.toolCallId,
+      executionAttempt: attempt,
+      clearNextRetryAt: true,
+      clearExecutionRetryFnId: true,
+    });
+    logger.debug(
+      `executeToolCall: callId=${args.toolCallId}, thread=${args.threadId}, attempt=${attempt}/${maxAttempts}`,
+    );
+
+    try {
       logger.debug(`executeToolCall: invoking handler for callId=${args.toolCallId}`);
-      const result = await ctx.runAction(args.handler as FunctionHandle<"action">, toolArgs as Record<string, unknown>);
+      const result = await ctx.runAction(handler as FunctionHandle<"action">, toolArgs as Record<string, unknown>);
       logger.debug(`executeToolCall: handler succeeded for callId=${args.toolCallId}`);
       await ctx.runMutation(api.tool_calls.addToolResult, {
         threadId: args.threadId,
         result,
         toolCallId: toolCall.toolCallId,
       });
+      return null;
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
-      logger.debug(`executeToolCall: handler failed for callId=${args.toolCallId}: ${error}`);
+      const errorInfo = extractToolErrorInfo(e);
+      const error = errorInfo.message;
+      logger.debug(`executeToolCall: handler failed for callId=${args.toolCallId} (attempt=${attempt}): ${error}`);
+
+      let retryable = false;
+      if (retryEnabled) {
+        if (retryPolicy.shouldRetryError) {
+          try {
+            const decision = await ctx.runAction(retryPolicy.shouldRetryError as FunctionHandle<"action">, {
+              threadId: args.threadId,
+              toolCallId: args.toolCallId,
+              toolName: toolCall.toolName,
+              args: toolCall.args,
+              error,
+              attempt,
+              maxAttempts,
+            });
+            retryable = isRetryableDecision(decision);
+          } catch (classifierError) {
+            logger.warn(
+              `executeToolCall: shouldRetryError failed for callId=${args.toolCallId}, falling back to default classifier: ${
+                classifierError instanceof Error ? classifierError.message : String(classifierError)
+              }`,
+            );
+            retryable = isRetryableToolErrorDefault(errorInfo);
+          }
+        } else {
+          retryable = isRetryableToolErrorDefault(errorInfo);
+        }
+      }
+
+      if (retryEnabled && retryable && attempt < maxAttempts) {
+        const delayMs = computeRetryDelayMs(attempt, retryPolicy.backoff);
+        const nextRetryAt = Date.now() + delayMs;
+        await ctx.runMutation(internal.tool_calls.scheduleExecutionRetry, {
+          threadId: args.threadId,
+          toolCallId: args.toolCallId,
+          handler,
+          executionAttempt: attempt,
+          executionLastError: error,
+          nextRetryAt,
+        });
+        logger.warn(
+          `executeToolCall: scheduled retry for callId=${args.toolCallId} in ${delayMs}ms (attempt ${
+            attempt + 1
+          }/${maxAttempts})`,
+        );
+        return null;
+      }
+
+      await ctx.runMutation(internal.tool_calls.updateExecutionRetryState, {
+        threadId: args.threadId,
+        toolCallId: args.toolCallId,
+        executionAttempt: attempt,
+        executionLastError: error,
+        clearNextRetryAt: true,
+        clearExecutionRetryFnId: true,
+      });
       await ctx.runMutation(api.tool_calls.addToolError, {
         threadId: args.threadId,
         error,
         toolCallId: toolCall.toolCallId,
       });
+      return null;
     }
-
-    return null;
   },
 });
 
@@ -623,6 +999,7 @@ export const onToolComplete = internalMutation({
         status: "stopped",
         activeStream: null,
         continue: false,
+        retryState: undefined,
       });
       if (thread.onStatusChangeHandle && previousStatus !== "stopped") {
         await ctx.runMutation(thread.onStatusChangeHandle as FunctionHandle<"mutation">, {
@@ -695,7 +1072,7 @@ export function createToolOutcomePart(
         };
 
   if (pendingPart?.callProviderMetadata != null) {
-    part.callProviderMetadata = pendingPart.callProviderMetadata as any;
+    part.callProviderMetadata = pendingPart.callProviderMetadata as ProviderMetadata;
   }
   return part;
 }

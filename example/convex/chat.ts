@@ -26,7 +26,7 @@ export const { enqueueWorkpoolAction } = createWorkpoolBridge(pool);
  * This is an internal action that gets scheduled by the component.
  */
 export const chatAgentHandler = streamHandlerAction(components.durable_agents, {
-  model: "anthropic/claude-sonnet-4.5",
+  model: "anthropic/claude-sonnet-4.6",
   system: `You are a helpful, friendly AI assistant.
     You can help users with various tasks and answer their questions.
     Be concise but thorough in your responses.
@@ -38,6 +38,10 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, {
         location: z.string().describe("The city name to get weather for"),
       }),
       handler: internal.tools.weather.getWeather,
+      retry: {
+        enabled: true,
+        maxAttempts: 5,
+      },
     }),
     get_temperature: createAsyncTool({
       description: "Get the temperature for a given location (async operation)",

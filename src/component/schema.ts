@@ -10,6 +10,18 @@ export const vThreadStatus = v.union(
   v.literal("stopped"),
 );
 
+export const vRetryState = v.object({
+  scope: v.literal("stream"),
+  attempt: v.number(),
+  maxAttempts: v.number(),
+  nextRetryAt: v.number(),
+  error: v.string(),
+  kind: v.optional(v.string()),
+  retryable: v.boolean(),
+  requiresExplicitHandling: v.boolean(),
+  retryFnId: v.optional(v.id("_scheduled_functions")),
+});
+
 // AI SDK message content - supports both string and array of parts
 export const vMessageContent = v.union(
   v.string(),
@@ -70,6 +82,8 @@ const schema = defineSchema({
     onStatusChangeHandle: v.optional(v.string()),
     // Monotonically increasing sequence number for streams of this thread
     seq: v.number(),
+    // Pending retry metadata for stream retries.
+    retryState: v.optional(vRetryState),
   }).index("by_status", ["status"]),
 
   // AI SDK compatible message storage
@@ -95,6 +109,13 @@ const schema = defineSchema({
     callback: v.optional(v.string()),
     callbackAttempt: v.optional(v.number()),
     callbackLastError: v.optional(v.string()),
+    executionAttempt: v.optional(v.number()),
+    executionMaxAttempts: v.optional(v.number()),
+    executionLastError: v.optional(v.string()),
+    executionRetryPolicy: v.optional(v.any()),
+    nextRetryAt: v.optional(v.number()),
+    executionRetryFnId: v.optional(v.id("_scheduled_functions")),
+    handler: v.optional(v.string()),
     timeoutMs: v.optional(v.union(v.number(), v.null())),
     expiresAt: v.optional(v.union(v.number(), v.null())),
     timeoutFnId: v.optional(v.id("_scheduled_functions")),
@@ -105,6 +126,7 @@ const schema = defineSchema({
     saveDelta: v.optional(v.boolean()),
   })
     .index("by_thread", ["threadId"])
+    .index("by_status_only", ["status"])
     .index("by_status", ["threadId", "status"])
     .index("by_thread_tool_call_id", ["threadId", "toolCallId"])
     .index("by_tool_call_id", ["toolCallId"]),

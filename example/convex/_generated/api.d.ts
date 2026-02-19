@@ -9,6 +9,7 @@
  */
 
 import type * as chat from "../chat.js";
+import type * as crons from "../crons.js";
 import type * as tools_weather from "../tools/weather.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   chat: typeof chat;
+  crons: typeof crons;
   "tools/weather": typeof tools_weather;
 }>;
 
