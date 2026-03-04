@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- Add support for provider tools
+
 ## 0.2.4
 
 - Automatic retries for common failures/interruptions of AI streams
