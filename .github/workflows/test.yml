@@ -16,23 +16,19 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
-
-      - name: Node setup
-        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          cache-dependency-path: package.json
-          node-version: "24.x"
-          cache: "npm"
-
-      - name: Install and build
+          bun-version-file: package.json
+      - name: Install dependencies
+        run: bun install
+      - name: Build
         run: |
-          npm i
-          npm run build
+          bun run build
       - name: Publish package for testing branch
         run: npx pkg-pr-new publish || echo "Have you set up pkg-pr-new for this repo?"
       - name: Test
         run: |
-          npm run test
-          npm run typecheck
-          npm run lint
+          bun run test
+          bun run typecheck
+          bun run lint
