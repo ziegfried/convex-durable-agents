@@ -13,6 +13,7 @@ import { v } from "convex/values";
 import type { ComponentApi } from "../component/_generated/component.js";
 import type { Id } from "../component/_generated/dataModel.js";
 import { Logger } from "../utils/logger.js";
+import { endsWithAssistantMessage } from "../utils/msg.js";
 import {
   clampDelayMs,
   classifyRetryErrorDefault,
@@ -92,6 +93,8 @@ export type ErrorHandlerCallback = (ctx: ActionCtx, args: ErrorHandlerArgs) => v
 
 export type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" | "messages" | "prompt"> & {
   tools: Record<string, DurableTool<unknown, unknown>>;
+  /** Optional: provider-native tools that should be passed through directly to streamText */
+  providerTools?: NonNullable<Parameters<typeof streamText>[0]["tools"]>;
   /** Optional: Save streaming deltas to the database for real-time client updates */
   saveStreamDeltas?: boolean | StreamingOptions;
   /** Optional: Transform the messages before sending them to the model */
@@ -195,6 +198,7 @@ export function streamHandlerAction(
         typeof argsOrFactory === "function" ? await argsOrFactory(ctx as ActionCtx, args.threadId) : argsOrFactory;
       const {
         tools,
+        providerTools,
         saveStreamDeltas,
         transformMessages = (messages) => messages,
         onMessageComplete: usageHandlerCallback,
@@ -249,13 +253,19 @@ export function streamHandlerAction(
 
         // Build tool definitions for AI SDK (without execute functions)
         const handlerlessTools: Record<string, Tool> = {};
+        const durableToolNames = new Set<string>();
         for (const toolDef of toolDefinitions) {
+          durableToolNames.add(toolDef.name);
           handlerlessTools[toolDef.name] = tool({
             description: toolDef.description,
             inputSchema: jsonSchema(toolDef.parameters as Parameters<typeof jsonSchema>[0]),
             // No execute function - we handle tool calls manually
           });
         }
+        const modelTools = {
+          ...handlerlessTools,
+          ...(providerTools ?? {}),
+        };
 
         const thread = await ctx.runQuery(component.threads.get, {
           threadId: args.threadId as Id<"threads">,
@@ -275,7 +285,19 @@ export function streamHandlerAction(
 
         const uiMessages = messages.map((m) => messageDocToUIMessage(m));
         logger.debug(`Converted ${uiMessages.length} UI messages, transforming to model messages...`);
-        const modelMessages = transformMessages(await convertToModelMessages(uiMessages, { tools: handlerlessTools }));
+        const modelMessages = transformMessages(await convertToModelMessages(uiMessages, { tools: modelTools }));
+        if (endsWithAssistantMessage(modelMessages)) {
+          logger.warn(
+            "Skipping streamText because transformed messages end with an assistant turn; no user/tool turn available",
+          );
+          finalStatus = "completed";
+          await streamer.finish();
+          await ctx.runMutation(component.threads.clearRetryState, {
+            threadId: args.threadId as Id<"threads">,
+          });
+          logger.debug("Stream handler completed without generation due to trailing assistant message");
+          return null;
+        }
         logger.debug(`Model messages ready (${modelMessages.length} messages), starting streamText...`);
 
         let toolCallCount = 0;
@@ -285,7 +307,7 @@ export function streamHandlerAction(
             ...streamTextArgs,
             prompt: undefined,
             messages: modelMessages,
-            tools: handlerlessTools,
+            tools: modelTools,
           });
 
           let finishReason: string | undefined;
@@ -328,6 +350,12 @@ export function streamHandlerAction(
                 logger.debug(
                   `Stream part: tool-input-available (tool=${part.toolName}, callId=${part.toolCallId}, count=${toolCallCount})`,
                 );
+                if (!durableToolNames.has(part.toolName)) {
+                  logger.debug(
+                    `Skipping scheduling for provider tool call: ${part.toolName} (callId=${part.toolCallId})`,
+                  );
+                  break;
+                }
                 await scheduleToolCall(
                   ctx,
                   {

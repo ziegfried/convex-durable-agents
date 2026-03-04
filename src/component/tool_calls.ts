@@ -101,6 +101,10 @@ function formatTimeoutMs(timeoutMs: number): string {
   return `${timeoutMs}ms`;
 }
 
+export function shouldContinueAfterToolCompletion(status: Doc<"threads">["status"]): boolean {
+  return status === "streaming" || status === "awaiting_tool_results";
+}
+
 async function cleanupTimeoutFn(ctx: MutationCtx, toolCall: Doc<"tool_calls">): Promise<void> {
   if (!toolCall.timeoutFnId) {
     return;
@@ -1017,6 +1021,11 @@ export const onToolComplete = internalMutation({
           });
         }
       }
+      return null;
+    }
+
+    if (!shouldContinueAfterToolCompletion(thread.status)) {
+      logger.debug(`onToolComplete: thread status=${thread.status}, skipping continuation`);
       return null;
     }
 
