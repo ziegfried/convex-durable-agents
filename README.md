@@ -1,5 +1,6 @@
 # Durable Agents Component for Convex
 
+[![Convex Component](https://www.convex.dev/components/badge/durable-agents)](https://www.convex.dev/components/durable-agents)
 [![npm version](https://badge.fury.io/js/convex-durable-agents.svg)](https://badge.fury.io/js/convex-durable-agents)
 
 A Convex component for building durable AI agents with an async tool loop. The goal of this component is to provide a
