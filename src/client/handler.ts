@@ -7,6 +7,7 @@ import {
   type Tool,
   tool,
   type UIMessage,
+  type UIMessageStreamPart,
 } from "ai";
 import { type FunctionReference, type GenericActionCtx, internalActionGeneric } from "convex/server";
 import { v } from "convex/values";
@@ -125,6 +126,8 @@ export type StreamHandlerArgs = Omit<Parameters<typeof streamText>[0], "tools" |
   workpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
   /** Optional: Override workpool for tool execution only */
   toolExecutionWorkpoolEnqueueAction?: FunctionReference<"mutation", "internal">;
+  /** Optional: Transform the UI message stream before the streamer iterates over it */
+  transformUIMessageStream?: (stream: ReadableStream<UIMessageStreamPart>) => ReadableStream<UIMessageStreamPart>;
 };
 
 export type StreamHandlerArgsFactory = (
@@ -313,13 +316,16 @@ export function streamHandlerAction(
           let finishReason: string | undefined;
           let responseMessage: UIMessage | undefined;
 
-          const uiMessageStream = result.toUIMessageStream({
+          let uiMessageStream = result.toUIMessageStream({
             generateMessageId: generateId,
             originalMessages: uiMessages,
             onFinish: ({ responseMessage: finalResponseMessage }) => {
               responseMessage = finalResponseMessage;
             },
           });
+          if (resolvedArgs.transformUIMessageStream) {
+            uiMessageStream = resolvedArgs.transformUIMessageStream(uiMessageStream);
+          }
 
           let msgId: string | undefined;
           if (messages.length > 0) {
