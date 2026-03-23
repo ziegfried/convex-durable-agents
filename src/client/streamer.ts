@@ -182,7 +182,7 @@ export class Streamer {
 }
 
 export function compactQueue(queue: Array<UIMessageChunk>): Array<UIMessageChunk> {
-  return joinAdjacentDeltas(queue.filter((part) => !(part.type === "tool-input-delta")).map(dropUnnecessaryInfo));
+  return joinAdjacentDeltas(queue.map(dropUnnecessaryInfo));
 }
 
 export function dropUnnecessaryInfo(chunk: UIMessageChunk): UIMessageChunk {
