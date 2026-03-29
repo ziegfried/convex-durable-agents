@@ -39,6 +39,8 @@ import { getStreamTextProviderMetadata, getStreamTextUsage, type UsageInfo } fro
 export type StreamingOptions = {
   throttleMs?: number;
   returnImmediately?: boolean;
+  /** Include tool-input-delta chunks in the stream, enabling incremental tool call input on the client. Default: false */
+  includeToolInputDeltas?: boolean;
 };
 
 const DEFAULT_STREAMING_OPTIONS: StreamingOptions = {
@@ -218,6 +220,7 @@ export function streamHandlerAction(
         threadId: args.threadId as Id<"threads">,
         streamId: args.streamId as Id<"streams">,
         lockId,
+        includeToolInputDeltas: streamingOptions.includeToolInputDeltas ?? false,
       });
       logger.debug("Acquiring stream lock...");
       const stream = await streamer.acquireLock().catch((e) => {

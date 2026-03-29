@@ -24,6 +24,7 @@ export class Streamer {
       lockId: string;
       threadId: Id<"threads">;
       streamId: Id<"streams">;
+      includeToolInputDeltas: boolean;
     },
   ) {
     this.#logger = new Logger(`streamer:${config.streamId}`);
@@ -129,7 +130,7 @@ export class Streamer {
     try {
       const queue = this.#queue;
       this.#queue = [];
-      const compacted = compactQueue(queue);
+      const compacted = compactQueue(queue, this.config.includeToolInputDeltas);
       if (compacted.length === 0) {
         this.#logger.debug(`Skipping delta write: seq=${this.#seq}, rawParts=${queue.length}, compactedParts=0`);
         return;
@@ -181,8 +182,9 @@ export class Streamer {
   }
 }
 
-export function compactQueue(queue: Array<UIMessageChunk>): Array<UIMessageChunk> {
-  return joinAdjacentDeltas(queue.filter((part) => !(part.type === "tool-input-delta")).map(dropUnnecessaryInfo));
+export function compactQueue(queue: Array<UIMessageChunk>, includeToolInputDeltas = false): Array<UIMessageChunk> {
+  const filtered = includeToolInputDeltas ? queue : queue.filter((part) => part.type !== "tool-input-delta");
+  return joinAdjacentDeltas(filtered.map(dropUnnecessaryInfo));
 }
 
 export function dropUnnecessaryInfo(chunk: UIMessageChunk): UIMessageChunk {
