@@ -170,6 +170,11 @@ export class Streamer {
 
   async fail(reason: string): Promise<void> {
     try {
+      if (this.#flushTimeout != null) {
+        clearTimeout(this.#flushTimeout);
+        this.#flushTimeout = undefined;
+      }
+      this.#queue = [];
       this.#logger.debug(`Aborting stream: ${reason}`);
       await this.ctx.runMutation(this.component.streams.abort, {
         streamId: this.config.streamId,
