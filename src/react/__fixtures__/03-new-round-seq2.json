@@ -1,0 +1,89 @@
+{
+  "description": "03-new-round-seq2",
+  "logLine": 32006,
+  "messages": [
+    {
+      "id": "LT8PGDxTlpf0lVZs",
+      "role": "user",
+      "parts": [
+        {
+          "text": "get me a weather forecast for this weekend",
+          "type": "text"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+        "status": "success",
+        "_creationTime": 1770783020905.086
+      }
+    },
+    {
+      "id": "vsOhda95lumMg4QZ",
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "step-start"
+        },
+        {
+          "providerMetadata": {
+            "bedrock": {
+              "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF"
+            }
+          },
+          "state": "done",
+          "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides \"current conditions, hourly and multi-day forecasts for any location worldwide\". That should have what I need for a weekend forecast.\n\nLet me read the Weather CAPABILITY.md to see how to query it.",
+          "type": "reasoning"
+        },
+        {
+          "input": {
+            "path": "capabilities/weather/CAPABILITY.md"
+          },
+          "output": "---\nname: Weather\ndescription: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide\n---\n\n# Weather Service\n\nGlobal weather data provider with current observations and forecasts.\n\n## Data Overview\n\n- Current conditions: temperature, humidity, wind, visibility\n- Hourly forecasts: up to 48 hours ahead\n- Daily forecasts: up to 10 days ahead\n- Historical data: past 30 days\n\n## Examples\n\nGet a multi-day forecast:\n\n```typescript\nconst forecast = await getWeather(\"weatherprod\", {\n  location: \"San Francisco, CA\",\n  type: \"daily\",\n  days: 7,\n});\nconsole.log(forecast);\n```\n\nGet current conditions:\n\n```typescript\nconst current = await getWeather(\"weatherprod\", {\n  location: \"New York, NY\",\n  type: \"current\",\n});\nconsole.log(current);\n```\n\n## Guidelines\n\n- Always specify a location string with city and state/country.\n- Use type \"daily\" for multi-day forecasts and \"current\" for present conditions.\n",
+          "state": "output-available",
+          "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+          "type": "tool-readFile"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+        "status": "success",
+        "_creationTime": 1770783024158.487,
+        "committedSeq": 1
+      }
+    }
+  ],
+  "streamingUpdates": {
+    "messages": [
+      {
+        "msgId": "vsOhda95lumMg4QZ",
+        "parts": [
+          {
+            "messageId": "vsOhda95lumMg4QZ",
+            "seq": 2,
+            "type": "start"
+          },
+          {
+            "seq": 2,
+            "type": "start-step"
+          },
+          {
+            "id": "0",
+            "seq": 2,
+            "type": "text-start"
+          },
+          {
+            "delta": "Now let me fetch the weekend forecast for your area:",
+            "id": "0",
+            "seq": 2,
+            "type": "text-delta"
+          },
+          {
+            "id": "0",
+            "seq": 2,
+            "type": "text-end"
+          }
+        ]
+      }
+    ]
+  }
+}

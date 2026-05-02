@@ -1,0 +1,212 @@
+{
+  "description": "07-text-streaming-more-seq6",
+  "logLine": 32050,
+  "messages": [
+    {
+      "id": "LT8PGDxTlpf0lVZs",
+      "role": "user",
+      "parts": [
+        {
+          "text": "get me a weather forecast for this weekend",
+          "type": "text"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+        "status": "success",
+        "_creationTime": 1770783020905.086
+      }
+    },
+    {
+      "id": "vsOhda95lumMg4QZ",
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "step-start"
+        },
+        {
+          "providerMetadata": {
+            "bedrock": {
+              "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF"
+            }
+          },
+          "state": "done",
+          "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides \"current conditions, hourly and multi-day forecasts for any location worldwide\". That should have what I need for a weekend forecast.\n\nLet me read the Weather CAPABILITY.md to see how to query it.",
+          "type": "reasoning"
+        },
+        {
+          "input": {
+            "path": "capabilities/weather/CAPABILITY.md"
+          },
+          "output": "---\nname: Weather\ndescription: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide\n---\n\n# Weather Service\n\nGlobal weather data provider with current observations and forecasts.\n\n## Data Overview\n\n- Current conditions: temperature, humidity, wind, visibility\n- Hourly forecasts: up to 48 hours ahead\n- Daily forecasts: up to 10 days ahead\n- Historical data: past 30 days\n\n## Examples\n\nGet a multi-day forecast:\n\n```typescript\nconst forecast = await getWeather(\"weatherprod\", {\n  location: \"San Francisco, CA\",\n  type: \"daily\",\n  days: 7,\n});\nconsole.log(forecast);\n```\n\nGet current conditions:\n\n```typescript\nconst current = await getWeather(\"weatherprod\", {\n  location: \"New York, NY\",\n  type: \"current\",\n});\nconsole.log(current);\n```\n\n## Guidelines\n\n- Always specify a location string with city and state/country.\n- Use type \"daily\" for multi-day forecasts and \"current\" for present conditions.\n",
+          "state": "output-available",
+          "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+          "type": "tool-readFile"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "state": "done",
+          "text": "Now let me fetch the weekend forecast for your area:",
+          "type": "text"
+        },
+        {
+          "errorText": "Code execution failed:\nWeather API request failed: Bad Request\nWeatherApiError: Weather API request failed: Bad Request\n    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)\n    at async <anonymous> (script.ts:2:35)\n    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)\n    at processTicksAndRejections (native:7:39)\n{\"messages\":[{\"type\":\"FATAL\",\"text\":\"Invalid date range specified.\"}]}\n{\"headers\":{\"cache-control\":\"no-store, no-cache, must-revalidate, max-age=0\",\"content-length\":\"52\",\"content-type\":\"application/json; charset=UTF-8\",\"date\":\"Wed, 11 Feb 2026 04:10:27 GMT\"},\"status\":400}",
+          "input": {
+            "code": "\nconst forecast = await getWeather(\"weatherprod\", {\n  location: \"San Francisco, CA\",\n  type: \"daily\",\n  startDate: \"2026-02-14\",\n  endDate: \"2026-02-15\",\n});\nconsole.log(\"Weekend Forecast\");\nconsole.log(\"================\");\nconsole.log(JSON.stringify(forecast, null, 2));\n",
+            "description": "Get weekend weather forecast"
+          },
+          "state": "output-error",
+          "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+          "type": "tool-runCode"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "state": "done",
+          "text": "Let me fix the query parameters:",
+          "type": "text"
+        },
+        {
+          "errorText": "TypeScript compilation failed:\nLine 10:9: Property 'forEach' does not exist on type 'GetWeatherResult'. (TS2339)",
+          "input": {
+            "code": "\nconst forecast = await getWeather(\"weatherprod\", {\n  location: \"San Francisco, CA\",\n  type: \"daily\",\n  days: 3,\n});\nconsole.log(\"Weekend Weather Forecast\");\nconsole.log(\"========================\");\nforecast.forEach((day: any) => {\n  console.log(`${day.date}: High ${day.high}°F / Low ${day.low}°F | ${day.condition}`);\n});\n",
+            "description": "Get weekend weather forecast"
+          },
+          "state": "output-error",
+          "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+          "type": "tool-runCode"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "input": {
+            "path": "capabilities/weather/capability.d.ts"
+          },
+          "output": "type WeatherConnection =\n/** Our primary weather data provider */\n\"weatherprod\"\n/** Development environment, ONLY use for testing */\n | \"weatherlocal\";\ntype GetWeatherArgs = {\n    /** City and state/country */\n    location: string;\n    /** Type of forecast */\n    type: \"current\" | \"hourly\" | \"daily\";\n    /** Number of days for daily forecast */\n    days?: number;\n};\ntype GetWeatherResult = {\n    days: { date: string; high: number; low: number; condition: string; wind_mph: number; humidity: number }[];\n};\n/** Fetches weather data for a given location */\ndeclare function getWeather(capability: WeatherConnection, args: GetWeatherArgs): Promise<GetWeatherResult>;\n",
+          "state": "output-available",
+          "toolCallId": "tooluse_v9PWcsLQJZUTtTDVH28ORv",
+          "type": "tool-readFile"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "input": {
+            "code": "\nconst forecast = await getWeather(\"weatherprod\", {\n  location: \"San Francisco, CA\",\n  type: \"daily\",\n  days: 3,\n});\nconsole.log(\"Weekend Weather Forecast\");\nconsole.log(\"========================\");\nforecast.days.forEach((day: any) => {\n  console.log(`${day.date}: High ${day.high}°F / Low ${day.low}°F | ${day.condition} | Wind ${day.wind_mph} mph`);\n});\n",
+            "description": "Get weekend weather forecast"
+          },
+          "output": {
+            "output": "Weekend Weather Forecast\n========================\n2026-02-13: High 62°F / Low 48°F | Partly Cloudy | Wind 12 mph\n2026-02-14: High 58°F / Low 45°F | Rain | Wind 18 mph\n2026-02-15: High 64°F / Low 50°F | Sunny | Wind 8 mph",
+            "truncated": false
+          },
+          "state": "output-available",
+          "toolCallId": "tooluse_lr7lv14lzsTmfrxUp3XJ4x",
+          "type": "tool-runCode"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "text",
+          "text": "**Weekend Weather Forecast - San Francisco**\n\n| Day | High | Low | Condition | Wind |\n|---|---|---|---|---|\n| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |\n| Saturday Feb 14 | 58°F | 45°F | Rai",
+          "state": "streaming"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "text",
+          "text": "**Weekend Weather Forecast - San Francisco**\n\n| Day | High | Low | Condition | Wind |\n|---|---|---|---|---|\n| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |\n| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |\n| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |\n\n**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday",
+          "state": "streaming"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "text",
+          "text": "**Weekend Weather Forecast - San Francisco**\n\n| Day | High | Low | Condition | Wind |\n|---|---|---|---|---|\n| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |\n| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |\n| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |\n\n**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine",
+          "state": "streaming"
+        },
+        {
+          "type": "step-start"
+        },
+        {
+          "type": "text",
+          "text": "**Weekend Weather Forecast - San Francisco**\n\n| Day | High | Low | Condition | Wind |\n|---|---|---|---|---|\n| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |\n| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |\n| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |\n\n**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine and light winds, perfect for outdoor plans",
+          "state": "streaming"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+        "status": "success",
+        "_creationTime": 1770783024158.487,
+        "committedSeq": 5
+      }
+    }
+  ],
+  "streamingUpdates": {
+    "messages": [
+      {
+        "msgId": "vsOhda95lumMg4QZ",
+        "parts": [
+          {
+            "messageId": "vsOhda95lumMg4QZ",
+            "seq": 6,
+            "type": "start"
+          },
+          {
+            "seq": 6,
+            "type": "start-step"
+          },
+          {
+            "id": "0",
+            "seq": 6,
+            "type": "text-start"
+          },
+          {
+            "delta": "**Weekend Weather Forecast - San Francisco**\n\n| Day | High | Low | Condition | Wind |\n|---|---|---|---|---|\n| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |\n| Saturday Feb 14 | 58°F | 45°F | Rai",
+            "id": "0",
+            "seq": 6,
+            "type": "text-delta"
+          },
+          {
+            "delta": "n | 18 mph |\n| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |\n\n**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday",
+            "id": "0",
+            "seq": 6,
+            "type": "text-delta"
+          },
+          {
+            "delta": " should clear up nicely with warm sunshine and light winds, perfect for outdoor plans",
+            "id": "0",
+            "seq": 6,
+            "type": "text-delta"
+          },
+          {
+            "delta": ".",
+            "id": "0",
+            "seq": 6,
+            "type": "text-delta"
+          },
+          {
+            "id": "0",
+            "seq": 6,
+            "type": "text-end"
+          },
+          {
+            "seq": 6,
+            "type": "finish-step"
+          },
+          {
+            "finishReason": "stop",
+            "seq": 6,
+            "type": "finish"
+          }
+        ]
+      }
+    ]
+  }
+}

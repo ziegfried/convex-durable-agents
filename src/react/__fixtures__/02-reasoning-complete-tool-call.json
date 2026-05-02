@@ -1,0 +1,85 @@
+{
+  "description": "02-reasoning-complete-tool-call",
+  "logLine": 31998,
+  "messages": [
+    {
+      "id": "LT8PGDxTlpf0lVZs",
+      "role": "user",
+      "parts": [
+        {
+          "text": "get me a weather forecast for this weekend",
+          "type": "text"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+        "status": "success",
+        "_creationTime": 1770783020905.086
+      }
+    }
+  ],
+  "streamingUpdates": {
+    "messages": [
+      {
+        "msgId": "vsOhda95lumMg4QZ",
+        "parts": [
+          {
+            "messageId": "vsOhda95lumMg4QZ",
+            "seq": 1,
+            "type": "start"
+          },
+          {
+            "seq": 1,
+            "type": "start-step"
+          },
+          {
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-start"
+          },
+          {
+            "delta": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides \"",
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-delta"
+          },
+          {
+            "delta": "current conditions, hourly and multi-day forecasts for an",
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-delta"
+          },
+          {
+            "delta": "y location worldwide\". That should have what I need",
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-delta"
+          },
+          {
+            "delta": " for a weekend forecast.\n\nLet me read the Weather CAPABILITY.md to see how to query it",
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-delta"
+          },
+          {
+            "delta": ".",
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-delta"
+          },
+          {
+            "id": "0",
+            "seq": 1,
+            "type": "reasoning-end"
+          },
+          {
+            "seq": 1,
+            "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+            "toolName": "readFile",
+            "type": "tool-input-start"
+          }
+        ]
+      }
+    ]
+  }
+}

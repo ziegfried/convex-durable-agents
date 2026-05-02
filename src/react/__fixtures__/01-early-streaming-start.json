@@ -1,0 +1,35 @@
+{
+  "description": "01-early-streaming-start",
+  "logLine": 31988,
+  "messages": [
+    {
+      "id": "LT8PGDxTlpf0lVZs",
+      "role": "user",
+      "parts": [
+        {
+          "text": "get me a weather forecast for this weekend",
+          "type": "text"
+        }
+      ],
+      "metadata": {
+        "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+        "status": "success",
+        "_creationTime": 1770783020905.086
+      }
+    }
+  ],
+  "streamingUpdates": {
+    "messages": [
+      {
+        "msgId": "vsOhda95lumMg4QZ",
+        "parts": [
+          {
+            "messageId": "vsOhda95lumMg4QZ",
+            "seq": 1,
+            "type": "start"
+          }
+        ]
+      }
+    ]
+  }
+}

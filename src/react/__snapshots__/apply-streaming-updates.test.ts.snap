@@ -1,0 +1,1357 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`applyStreamingUpdates > 01-early-streaming-start (log line 31988) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "parts": [],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 02-reasoning-complete-tool-call (log line 31998) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": undefined,
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "errorText": undefined,
+        "input": undefined,
+        "output": undefined,
+        "preliminary": undefined,
+        "providerExecuted": undefined,
+        "rawInput": undefined,
+        "state": "input-streaming",
+        "title": undefined,
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 03-new-round-seq2 (log line 32006) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 1,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": undefined,
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 04-tool-call-error-seq3 (log line 32020) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 2,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+      {
+        "errorText": "Code execution failed:
+Weather API request failed: Bad Request
+WeatherApiError: Weather API request failed: Bad Request
+    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)
+    at async <anonymous> (script.ts:2:35)
+    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)
+    at processTicksAndRejections (native:7:39)
+{"messages":[{"type":"FATAL","text":"Invalid date range specified."}]}
+{"headers":{"cache-control":"no-store, no-cache, must-revalidate, max-age=0","content-length":"52","content-type":"application/json; charset=UTF-8","date":"Wed, 11 Feb 2026 04:10:27 GMT"},"status":400}",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  startDate: "2026-02-14",
+  endDate: "2026-02-15",
+});
+console.log("Weekend Forecast");
+console.log("================");
+console.log(JSON.stringify(forecast, null, 2));
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+      {
+        "errorText": undefined,
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.days.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition} | Wind \${day.wind_mph} mph\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "output": undefined,
+        "preliminary": undefined,
+        "providerExecuted": undefined,
+        "rawInput": undefined,
+        "state": "input-available",
+        "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": undefined,
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 05-later-round-seq5 (log line 32032) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 4,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+      {
+        "errorText": "Code execution failed:
+Weather API request failed: Bad Request
+WeatherApiError: Weather API request failed: Bad Request
+    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)
+    at async <anonymous> (script.ts:2:35)
+    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)
+    at processTicksAndRejections (native:7:39)
+{"messages":[{"type":"FATAL","text":"Invalid date range specified."}]}
+{"headers":{"cache-control":"no-store, no-cache, must-revalidate, max-age=0","content-length":"52","content-type":"application/json; charset=UTF-8","date":"Wed, 11 Feb 2026 04:10:27 GMT"},"status":400}",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  startDate: "2026-02-14",
+  endDate: "2026-02-15",
+});
+console.log("Weekend Forecast");
+console.log("================");
+console.log(JSON.stringify(forecast, null, 2));
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+      {
+        "errorText": "TypeScript compilation failed:
+Line 10:9: Property 'forEach' does not exist on type 'GetWeatherResult'. (TS2339)",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition}\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/capability.d.ts",
+        },
+        "output": "type WeatherConnection =
+/** Our primary weather data provider */
+"weatherprod"
+/** Development environment, ONLY use for testing */
+ | "weatherlocal";
+type GetWeatherArgs = {
+    /** City and state/country */
+    location: string;
+    /** Type of forecast */
+    type: "current" | "hourly" | "daily";
+    /** Number of days for daily forecast */
+    days?: number;
+};
+type GetWeatherResult = {
+    days: { date: string; high: number; low: number; condition: string; wind_mph: number; humidity: number }[];
+};
+/** Fetches weather data for a given location */
+declare function getWeather(capability: WeatherConnection, args: GetWeatherArgs): Promise<GetWeatherResult>;
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_v9PWcsLQJZUTtTDVH28ORv",
+        "type": "tool-readFile",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 06-text-streaming-seq6 (log line 32044) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 5,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+      {
+        "errorText": "Code execution failed:
+Weather API request failed: Bad Request
+WeatherApiError: Weather API request failed: Bad Request
+    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)
+    at async <anonymous> (script.ts:2:35)
+    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)
+    at processTicksAndRejections (native:7:39)
+{"messages":[{"type":"FATAL","text":"Invalid date range specified."}]}
+{"headers":{"cache-control":"no-store, no-cache, must-revalidate, max-age=0","content-length":"52","content-type":"application/json; charset=UTF-8","date":"Wed, 11 Feb 2026 04:10:27 GMT"},"status":400}",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  startDate: "2026-02-14",
+  endDate: "2026-02-15",
+});
+console.log("Weekend Forecast");
+console.log("================");
+console.log(JSON.stringify(forecast, null, 2));
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+      {
+        "errorText": "TypeScript compilation failed:
+Line 10:9: Property 'forEach' does not exist on type 'GetWeatherResult'. (TS2339)",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition}\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/capability.d.ts",
+        },
+        "output": "type WeatherConnection =
+/** Our primary weather data provider */
+"weatherprod"
+/** Development environment, ONLY use for testing */
+ | "weatherlocal";
+type GetWeatherArgs = {
+    /** City and state/country */
+    location: string;
+    /** Type of forecast */
+    type: "current" | "hourly" | "daily";
+    /** Number of days for daily forecast */
+    days?: number;
+};
+type GetWeatherResult = {
+    days: { date: string; high: number; low: number; condition: string; wind_mph: number; humidity: number }[];
+};
+/** Fetches weather data for a given location */
+declare function getWeather(capability: WeatherConnection, args: GetWeatherArgs): Promise<GetWeatherResult>;
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_v9PWcsLQJZUTtTDVH28ORv",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.days.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition} | Wind \${day.wind_mph} mph\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "output": {
+          "output": "Weekend Weather Forecast
+========================
+2026-02-13: High 62°F / Low 48°F | Partly Cloudy | Wind 12 mph
+2026-02-14: High 58°F / Low 45°F | Rain | Wind 18 mph
+2026-02-15: High 64°F / Low 50°F | Sunny | Wind 8 mph",
+          "truncated": false,
+        },
+        "state": "output-available",
+        "toolCallId": "tooluse_lr7lv14lzsTmfrxUp3XJ4x",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rai",
+        "type": "text",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": undefined,
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday",
+        "type": "text",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 07-text-streaming-more-seq6 (log line 32050) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 5,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+      {
+        "errorText": "Code execution failed:
+Weather API request failed: Bad Request
+WeatherApiError: Weather API request failed: Bad Request
+    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)
+    at async <anonymous> (script.ts:2:35)
+    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)
+    at processTicksAndRejections (native:7:39)
+{"messages":[{"type":"FATAL","text":"Invalid date range specified."}]}
+{"headers":{"cache-control":"no-store, no-cache, must-revalidate, max-age=0","content-length":"52","content-type":"application/json; charset=UTF-8","date":"Wed, 11 Feb 2026 04:10:27 GMT"},"status":400}",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  startDate: "2026-02-14",
+  endDate: "2026-02-15",
+});
+console.log("Weekend Forecast");
+console.log("================");
+console.log(JSON.stringify(forecast, null, 2));
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+      {
+        "errorText": "TypeScript compilation failed:
+Line 10:9: Property 'forEach' does not exist on type 'GetWeatherResult'. (TS2339)",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition}\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/capability.d.ts",
+        },
+        "output": "type WeatherConnection =
+/** Our primary weather data provider */
+"weatherprod"
+/** Development environment, ONLY use for testing */
+ | "weatherlocal";
+type GetWeatherArgs = {
+    /** City and state/country */
+    location: string;
+    /** Type of forecast */
+    type: "current" | "hourly" | "daily";
+    /** Number of days for daily forecast */
+    days?: number;
+};
+type GetWeatherResult = {
+    days: { date: string; high: number; low: number; condition: string; wind_mph: number; humidity: number }[];
+};
+/** Fetches weather data for a given location */
+declare function getWeather(capability: WeatherConnection, args: GetWeatherArgs): Promise<GetWeatherResult>;
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_v9PWcsLQJZUTtTDVH28ORv",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.days.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition} | Wind \${day.wind_mph} mph\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "output": {
+          "output": "Weekend Weather Forecast
+========================
+2026-02-13: High 62°F / Low 48°F | Partly Cloudy | Wind 12 mph
+2026-02-14: High 58°F / Low 45°F | Rain | Wind 18 mph
+2026-02-15: High 64°F / Low 50°F | Sunny | Wind 8 mph",
+          "truncated": false,
+        },
+        "state": "output-available",
+        "toolCallId": "tooluse_lr7lv14lzsTmfrxUp3XJ4x",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rai",
+        "type": "text",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday",
+        "type": "text",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine",
+        "type": "text",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "streaming",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine and light winds, perfect for outdoor plans",
+        "type": "text",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": undefined,
+        "state": "done",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine and light winds, perfect for outdoor plans.",
+        "type": "text",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
+
+exports[`applyStreamingUpdates > 08-fully-committed-seq6 (log line 32052) 1`] = `
+[
+  {
+    "id": "LT8PGDxTlpf0lVZs",
+    "metadata": {
+      "_creationTime": 1770783020905.086,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-LT8PGDxTlpf0lVZs",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "text": "get me a weather forecast for this weekend",
+        "type": "text",
+      },
+    ],
+    "role": "user",
+  },
+  {
+    "id": "vsOhda95lumMg4QZ",
+    "metadata": {
+      "_creationTime": 1770783024158.487,
+      "committedSeq": 6,
+      "key": "jn7a2st357bqyzrcetv78j0fmx80yd8n-vsOhda95lumMg4QZ",
+      "status": "success",
+    },
+    "parts": [
+      {
+        "type": "step-start",
+      },
+      {
+        "providerMetadata": {
+          "bedrock": {
+            "signature": "AxB2kT9pLmNcDfEgHiJkLmNoPqRsTuVwXyZ0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEFghijklmnopqrstuvwxyz0123456789abcdefABCDEF",
+          },
+        },
+        "state": "done",
+        "text": "The user wants a weather forecast for this weekend. I should use the Weather capability which provides "current conditions, hourly and multi-day forecasts for any location worldwide". That should have what I need for a weekend forecast.
+
+Let me read the Weather CAPABILITY.md to see how to query it.",
+        "type": "reasoning",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/CAPABILITY.md",
+        },
+        "output": "---
+name: Weather
+description: Weather provides current conditions, hourly and multi-day forecasts for any location worldwide
+---
+
+# Weather Service
+
+Global weather data provider with current observations and forecasts.
+
+## Data Overview
+
+- Current conditions: temperature, humidity, wind, visibility
+- Hourly forecasts: up to 48 hours ahead
+- Daily forecasts: up to 10 days ahead
+- Historical data: past 30 days
+
+## Examples
+
+Get a multi-day forecast:
+
+\`\`\`typescript
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 7,
+});
+console.log(forecast);
+\`\`\`
+
+Get current conditions:
+
+\`\`\`typescript
+const current = await getWeather("weatherprod", {
+  location: "New York, NY",
+  type: "current",
+});
+console.log(current);
+\`\`\`
+
+## Guidelines
+
+- Always specify a location string with city and state/country.
+- Use type "daily" for multi-day forecasts and "current" for present conditions.
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_4X05H1krEnm7rFppLQw1pi",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Now let me fetch the weekend forecast for your area:",
+        "type": "text",
+      },
+      {
+        "errorText": "Code execution failed:
+Weather API request failed: Bad Request
+WeatherApiError: Weather API request failed: Bad Request
+    at getWeather (/workspace/services/executor/.cache/revision-envs/k970rr9s6zxgkh8rg4fdbbhw3d80yzhs/bundle.mjs:2141:15)
+    at async <anonymous> (script.ts:2:35)
+    at async executeTypeScript (/workspace/services/executor/src/exec.ts:507:14)
+    at processTicksAndRejections (native:7:39)
+{"messages":[{"type":"FATAL","text":"Invalid date range specified."}]}
+{"headers":{"cache-control":"no-store, no-cache, must-revalidate, max-age=0","content-length":"52","content-type":"application/json; charset=UTF-8","date":"Wed, 11 Feb 2026 04:10:27 GMT"},"status":400}",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  startDate: "2026-02-14",
+  endDate: "2026-02-15",
+});
+console.log("Weekend Forecast");
+console.log("================");
+console.log(JSON.stringify(forecast, null, 2));
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_g3zTfupLSe8DI2Yla3gzG1",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "Let me fix the query parameters:",
+        "type": "text",
+      },
+      {
+        "errorText": "TypeScript compilation failed:
+Line 10:9: Property 'forEach' does not exist on type 'GetWeatherResult'. (TS2339)",
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition}\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "state": "output-error",
+        "toolCallId": "tooluse_vGo3riHmTITFJfPvsE2y4k",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "path": "capabilities/weather/capability.d.ts",
+        },
+        "output": "type WeatherConnection =
+/** Our primary weather data provider */
+"weatherprod"
+/** Development environment, ONLY use for testing */
+ | "weatherlocal";
+type GetWeatherArgs = {
+    /** City and state/country */
+    location: string;
+    /** Type of forecast */
+    type: "current" | "hourly" | "daily";
+    /** Number of days for daily forecast */
+    days?: number;
+};
+type GetWeatherResult = {
+    days: { date: string; high: number; low: number; condition: string; wind_mph: number; humidity: number }[];
+};
+/** Fetches weather data for a given location */
+declare function getWeather(capability: WeatherConnection, args: GetWeatherArgs): Promise<GetWeatherResult>;
+",
+        "state": "output-available",
+        "toolCallId": "tooluse_v9PWcsLQJZUTtTDVH28ORv",
+        "type": "tool-readFile",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "input": {
+          "code": "
+const forecast = await getWeather("weatherprod", {
+  location: "San Francisco, CA",
+  type: "daily",
+  days: 3,
+});
+console.log("Weekend Weather Forecast");
+console.log("========================");
+forecast.days.forEach((day: any) => {
+  console.log(\`\${day.date}: High \${day.high}°F / Low \${day.low}°F | \${day.condition} | Wind \${day.wind_mph} mph\`);
+});
+",
+          "description": "Get weekend weather forecast",
+        },
+        "output": {
+          "output": "Weekend Weather Forecast
+========================
+2026-02-13: High 62°F / Low 48°F | Partly Cloudy | Wind 12 mph
+2026-02-14: High 58°F / Low 45°F | Rain | Wind 18 mph
+2026-02-15: High 64°F / Low 50°F | Sunny | Wind 8 mph",
+          "truncated": false,
+        },
+        "state": "output-available",
+        "toolCallId": "tooluse_lr7lv14lzsTmfrxUp3XJ4x",
+        "type": "tool-runCode",
+      },
+      {
+        "type": "step-start",
+      },
+      {
+        "state": "done",
+        "text": "**Weekend Weather Forecast - San Francisco**
+
+| Day | High | Low | Condition | Wind |
+|---|---|---|---|---|
+| Friday Feb 13 | 62°F | 48°F | Partly Cloudy | 12 mph |
+| Saturday Feb 14 | 58°F | 45°F | Rain | 18 mph |
+| Sunday Feb 15 | 64°F | 50°F | Sunny | 8 mph |
+
+**Summary:** Saturday looks rainy with cooler temperatures, so bring an umbrella. Sunday should clear up nicely with warm sunshine and light winds, perfect for outdoor plans.",
+        "type": "text",
+      },
+    ],
+    "role": "assistant",
+  },
+]
+`;
