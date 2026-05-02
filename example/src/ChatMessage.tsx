@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { SmoothText } from "./SmoothText";
-import { UIMessagePart } from "ai";
+import type { UIMessagePart } from "ai";
 import { ThreadStatus, UIMessageWithConvexMetadata } from "../../dist/react";
 
 type ToolCallUIPart = Extract<UIMessagePart<any, any>, { type: `tool-${string}` }>;
