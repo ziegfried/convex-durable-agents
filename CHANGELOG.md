@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.6
+
+- includeToolInputDeltas streaming option
+- fix unhandled promise rejection when provider connection drops mid-stream
+
 ## 0.2.5
 
 - Add support for provider tools
